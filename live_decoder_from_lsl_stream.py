@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from pylsl import StreamInlet, resolve_stream
+import pylsl
+from pylsl import StreamInlet  # , resolve_stream
 import time
 import pandas as pd
 from scipy.signal import butter, lfilter, lfilter_zi, iirnotch, filtfilt
@@ -10,11 +11,13 @@ import serial
 ############### Change PARAMETERS here ############### 
 
 sampling_rate = 2000  # Hz
+PORT = 'COM6'
 
 stream_name = 'SAGAA'            # Search for active stream names using names_of_active_lsl_streams.py and connect to NML wifi
 buffer_length_sec = 5
 buffer_size = int(buffer_length_sec * sampling_rate)
-threshold = 1.75  # EMG envelope threshold. Change based on participant threshold
+threshold = 1.5  # EMG envelope threshold. Change based on participant threshold
+#threshold = 1.75  # EMG envelope threshold. Change based on participant threshold
 
 # Filters
 bandpass_low = 20
@@ -22,6 +25,7 @@ bandpass_high = 450
 notch_freq = 60
 notch_q = 30.0
 envelope_cutoff = 1  # Hz
+#envelope_cutoff = 1  # Hz
 envelope_order = 4
 
 
@@ -52,8 +56,16 @@ recorded_timestamps = []
 ###############  Connect to LSL Stream ############### 
 
 print("Resolving LSL stream...")
-streams = resolve_stream('name', stream_name)
-inlet = StreamInlet(streams[0], max_buflen=60)
+#streams = resolve_stream('name', stream_name)
+streams = pylsl.resolve_streams()
+
+inlet = None
+for i, stream in enumerate(streams):
+    if stream.name() == stream_name:
+        print(f"Found stream {i+1}: {stream.name()} (Type: {stream.type()})")
+        inlet = StreamInlet(stream, max_buflen=60)
+        break
+
 info = inlet.info()
 n_channels = info.channel_count()
 
@@ -76,17 +88,27 @@ print("Channel labels:", channel_labels)
 
 
 
-############### Connect to Exo on COM5 ############### 
+############### Connect to Exo on COM Port ###############
 
 # Change COM based on exo connection
 # Change baudrate if using old dynamixel motor to 1000000
 
 try:
-    exo = serial.Serial('COM5', 57600)
-    print("Connected to Exo on COM5")
+    exo = serial.Serial(PORT, 57600)
+    print(f"Connected to Exo on {PORT}")
 except Exception as e:
-    print(f"ERROR!!!!!!!!! Could not connect to COM5: {e}")
+    print(f"ERROR!!!!!!!!! Could not connect to {PORT}: {e}")
     exo = None
+
+############# Reconfigure the exo just in case ###################
+# Reboot motors
+exo.write(b"reboot:1\n")
+exo.write(b"disable_torque\n")
+print("torque disabled, please reset linkage")
+time.sleep(2)
+print("torque re-enabled")
+exo.write(b"enable_torque\n")
+exo.write(b"set_vel:1:30\n")
 
 last_command = None  # Track last motor command to avoid repeats
 
@@ -165,6 +187,13 @@ def update(frame):
         emg_rectified = np.abs(emg_filtered)
         emg_envelope, zi_lpf = lfilter(b_lpf, a_lpf, emg_rectified, zi=zi_lpf)
 
+        #b, a = butter(2, envelope_cutoff, btype="low", fs=sampling_rate)
+        #emg_envelope = filtfilt(b, a, emg_rectified)
+
+        # Apply an 100 sample rms to the envelop
+        #window_size = int(0.5 * sampling_rate)
+        #emg_envelope = np.sqrt(np.convolve(emg_rectified**2, np.ones(window_size)/window_size, mode='same'))
+
         # Update plot buffers
         bandpass_buffer = np.roll(bandpass_buffer, -len(emg_filtered)) 
         envelope_buffer = np.roll(envelope_buffer, -len(emg_envelope))
@@ -186,7 +215,7 @@ def update(frame):
         if current_env > threshold:
             env_line.set_color('red')
             if exo and last_command != "go":
-                exo.write(b"set_angle:WRIST:50;\n")
+                exo.write(b"set_angle:WRIST:90;\n")
                 last_command = "go"
         else:
             env_line.set_color('blue')

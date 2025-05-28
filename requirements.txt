@@ -3,3 +3,4 @@ PySerial
 PyQt5
 pyqtgraph
 scikit-learn
+pylsl
