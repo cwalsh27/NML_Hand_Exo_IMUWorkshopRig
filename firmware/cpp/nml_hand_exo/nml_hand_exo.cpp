@@ -38,11 +38,30 @@
 #endif
 
 const float DXL_PROTOCOL_VERSION = 2.0;
+const int PULSE_RESOLUTION = 4096;
+const float XL330_TORQUE_CONSTANT = 0.00038; // N*m / mA
+
+bool VERBOSE = false; // default to true
+//HardwareSerial& DEBUG_SERIAL = Serial; // default debug output
+Stream& DEBUG_SERIAL = Serial;
+Stream* debugStream = &DEBUG_SERIAL;
+
+void debugPrint(const String& msg) {
+  if (VERBOSE && debugStream) {
+    debugStream->println("[DEBUG] " + msg);
+  }
+}
 
 NMLHandExo::NMLHandExo(const uint8_t* ids, int motorCount, const int jointLimits[][2])
   : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), motorCount_(motorCount), jointLimits_(jointLimits) {}
 
-
+// Utility functions
+int NMLHandExo::angleToTicks(float angle_deg, int index) {
+  // Map degrees to ticks: assume full range = 4096 ticks = 360 deg
+  float deg_per_tick = 300.0 / PULSE_RESOLUTION;
+  int ticks = static_cast<int>(angle_deg / deg_per_tick);
+  return ticks;
+}
 void NMLHandExo::initializeSerial(int baud) {
   // Initialize serial communication with DYNAMIXEL hardware using the specified baudrate. Has to match hardware
   dxl_.begin(baud);
@@ -106,10 +125,6 @@ int NMLHandExo::getIndexById(uint8_t id) {
   }
   return -1;
 }
-void NMLHandExo::getDynamixelInfo(uint8_t id) {
-  // Get DYNAMIXEL information, should print to the terminal
-  dxl_.ping(id);
-}
 void NMLHandExo::setMotorLED(uint8_t id, bool state) {
   // Sets specified motor LED to the specified state
   if (state) {
@@ -138,9 +153,37 @@ void NMLHandExo::printAllPositions() {
 void NMLHandExo::rebootMotor(uint8_t id) {
   dxl_.reboot(id);
 }
-void NMLHandExo::setAngleById(uint8_t id, float angleDeg) {
-  int pos = round((angleDeg / 300.0f) * 1023.0f);
-  setPositionById(id, pos);
+float NMLHandExo::getRelativeAngle(uint8_t id) {
+  int index = getIndexById(id);
+  if (index == -1) return -1;
+
+  int pos = getPositionById(id);
+  int delta = pos - zeroOffsets_[index];
+  float degrees = (delta / 1023.0f) * 300.0f;
+  return degrees;
+}
+void NMLHandExo::setAngleById(uint8_t id, float angle_deg) {
+  int index = getIndexById(id);
+  if (index == -1) return;
+
+  // Clamp angle to joint limits (in degrees)
+  angle_deg = constrain(angle_deg, jointLimits_[index][0], jointLimits_[index][1]);
+
+  // Convert angle to ticks (e.g., -90 → -1024, 0 → 2048, +90 → +1024)
+  int delta_ticks = angleToTicks(angle_deg, index);  // e.g., -90° = -1024 ticks if 4096 = 360°
+
+  // Centered zero = calibrated zero offset (typically ~2048 ticks)
+  int center = zeroOffsets_[index];
+  int goal = center + delta_ticks;
+
+  // Wrap goal into 0–4095 range to prevent negative or invalid positions
+  goal = constrain(goal, 0, 4095);
+
+  // Set new goal tick position
+  dxl_.setGoalPosition(id, goal);
+
+  debugPrint("Setting motor " + String(id) + " to angle " + String(angle_deg, 2) +
+             " deg (" + String(goal) + " ticks)");
 }
 void NMLHandExo::setAngleByAlias(const String& alias, float angleDeg) {
   String name = alias;
@@ -163,13 +206,55 @@ void NMLHandExo::resetAllZeros() {
     zeroOffsets_[i] = getPositionById(ids_[i]);
   }
 }
-float NMLHandExo::getRelativeAngle(uint8_t id) {
-  int index = getIndexById(id);
-  if (index == -1) return -1;
 
-  int pos = getPositionById(id);
-  int delta = pos - zeroOffsets_[index];
-  float degrees = (delta / 1023.0f) * 300.0f;
-  return degrees;
+// Torque commands
+void NMLHandExo::enableTorque(uint8_t id, bool enable) {
+  if (enable) {
+    dxl_.torqueOn(id);
+  } else {
+    dxl_.torqueOff(id);
+  }
+}
+int16_t NMLHandExo::getCurrent(uint8_t id) {
+  return dxl_.readControlTableItem(PRESENT_CURRENT, id);
+}
+float NMLHandExo::getTorque(uint8_t id) {
+  // Each unit = 2.69 mA; torque constant = 0.38 mN·m/mA = 0.00038 N·m/mA
+  int16_t raw_current = NMLHandExo::getCurrent(id);
+  float current_mA = raw_current * 2.69;
+  float torque_Nm = current_mA * XL330_TORQUE_CONSTANT;
+  return torque_Nm;  // in N·m
 }
 
+
+
+// Velocity commands
+void NMLHandExo::setVelocityLimit(uint8_t id, uint32_t vel) {
+  dxl_.writeControlTableItem(PROFILE_VELOCITY, id, vel);
+  debugPrint("Velocity limit set for motor " + String(id) + ": " + String(vel));
+}
+uint32_t NMLHandExo::getVelocityLimit(uint8_t id) {
+  return dxl_.readControlTableItem(PROFILE_VELOCITY, id);
+}
+
+// Acceleration commands
+void NMLHandExo::setAccelerationLimit(uint8_t id, uint32_t acc) {
+  dxl_.writeControlTableItem(PROFILE_ACCELERATION, id, acc);
+  debugPrint("Acceleration limit set for motor " + String(id) + ": " + String(acc));
+}
+uint32_t NMLHandExo::getAccelerationLimit(uint8_t id) {
+  return dxl_.readControlTableItem(PROFILE_ACCELERATION, id);
+}
+
+// Motor-specific commands
+void NMLHandExo::getMotorInfo(uint8_t id) {
+  dxl_.ping(id);  // could be expanded to read Model Number, Version, etc.
+  debugPrint("Pinged motor ID: " + String(id));
+}
+void NMLHandExo::setBaudRate(uint8_t id, uint32_t baudrate) {
+  dxl_.writeControlTableItem(BAUD_RATE, id, baudrate);
+  //debugPrint("Baud rate for motor " + String(id) + " set to " + String(baudrate));
+}
+uint32_t NMLHandExo::getBaudRate(uint8_t id) {
+  return dxl_.readControlTableItem(BAUD_RATE, id);
+}

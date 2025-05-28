@@ -2,6 +2,9 @@
 .gradle/
 build/
 
+# Data
+TinyML/data/
+
 # Virtual environments
 .idea
 venv/
