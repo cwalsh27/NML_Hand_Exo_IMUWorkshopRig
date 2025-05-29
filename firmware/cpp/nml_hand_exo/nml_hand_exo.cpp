@@ -37,31 +37,29 @@
   const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
 #endif
 
+// Hardware constants for the dynamixel hardware and motors used
 const float DXL_PROTOCOL_VERSION = 2.0;
-const int PULSE_RESOLUTION = 4096;
+const int PULSE_RESOLUTION = 4096;           // Ticks per revolution
 const float XL330_TORQUE_CONSTANT = 0.00038; // N*m / mA
 
 bool VERBOSE = false; // default to true
-//HardwareSerial& DEBUG_SERIAL = Serial; // default debug output
-Stream& DEBUG_SERIAL = Serial;
-Stream* debugStream = &DEBUG_SERIAL;
 
+//HardwareSerial& DEBUG_SERIAL = Serial; // default debug output
+Stream& DEBUG_SERIAL = Serial;       // Using Serial USB for debugging output
+Stream* debugStream = &DEBUG_SERIAL; // Making pointer for serial object
+
+// Debug printing function 
 void debugPrint(const String& msg) {
   if (VERBOSE && debugStream) {
     debugStream->println("[DEBUG] " + msg);
   }
 }
 
-NMLHandExo::NMLHandExo(const uint8_t* ids, int motorCount, const int jointLimits[][2])
-  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), motorCount_(motorCount), jointLimits_(jointLimits) {}
+
+NMLHandExo::NMLHandExo(const uint8_t* ids, int numMotors, const int jointLimits[][2])
+  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), jointLimits_(jointLimits), numMotors_(numMotors) {}
 
 // Utility functions
-int NMLHandExo::angleToTicks(float angle_deg, int index) {
-  // Map degrees to ticks: assume full range = 4096 ticks = 360 deg
-  float deg_per_tick = 300.0 / PULSE_RESOLUTION;
-  int ticks = static_cast<int>(angle_deg / deg_per_tick);
-  return ticks;
-}
 void NMLHandExo::initializeSerial(int baud) {
   // Initialize serial communication with DYNAMIXEL hardware using the specified baudrate. Has to match hardware
   dxl_.begin(baud);
@@ -69,121 +67,95 @@ void NMLHandExo::initializeSerial(int baud) {
   dxl_.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
 }
 void NMLHandExo::initializeMotors() {
-  for (int i = 0; i < motorCount_; i++) {
+  for (int i = 0; i < numMotors_; i++) {
     uint8_t id = ids_[i];
     dxl_.torqueOff(id);
-    dxl_.setOperatingMode(id, OP_POSITION);
+    dxl_.setOperatingMode(id, OP_POSITION);  // Default mode is set to position mode
     dxl_.torqueOn(id);
   }
 }
-void NMLHandExo::setPositionById(uint8_t id, int position) {
-  int index = getIndexById(id);
-  if (index == -1) return;
+int NMLHandExo::getMotorID(const String& token) {
+  String target = token;
+  target.trim();
+  target.toUpperCase();
+  int id = target.toInt(); // Try converting to integer
 
-  position = constrain(position, jointLimits_[index][0], jointLimits_[index][1]);
-  dxl_.setGoalPosition(id, position);
-}
-int NMLHandExo::getPositionById(uint8_t id) {
-  return dxl_.getPresentPosition(id);
-}
-void NMLHandExo::setPositionByName(const String& name, int position) {
-  if (name.startsWith("F")) {
-    int fingerNum = name.substring(1).toInt();
-    if (fingerNum >= 1 && fingerNum <= 5) {
-      setPositionById(fingerNum + 1, position);  // F1 → ID 2
-    }
-  } else if (name == "W") {
-    setPositionById(1, position);  // WRIST_ID is 1
+  // Check if it was a valid number (e.g., not "WRIST")
+  if (id != 0 || target == "0") {
+    return id;
   }
-}
-void NMLHandExo::setPositionByAlias(const String& alias, int position) {
-  String name = alias;
-  name.toUpperCase();
-  if (name == "THUMB") setPositionById(2, position);
-  else if (name == "INDEX") setPositionById(3, position);
-  else if (name == "MIDDLE") setPositionById(4, position);
-  else if (name == "RING") setPositionById(5, position);
-  else if (name == "PINKY") setPositionById(6, position);
-  else if (name == "WRIST") setPositionById(1, position);
-}
-int NMLHandExo::getPositionByAlias(const String& alias) {
-  String name = alias;
-  name.toUpperCase();
-
-  if (name == "THUMB") return getPositionById(2);
-  if (name == "INDEX") return getPositionById(3);
-  if (name == "MIDDLE") return getPositionById(4);
-  if (name == "RING") return getPositionById(5);
-  if (name == "PINKY") return getPositionById(6);
-  if (name == "WRIST") return getPositionById(1);
-
-  return -1;  // Invalid name
+  return getMotorIDByName(target);  // Otherwise, try name lookup
 }
 int NMLHandExo::getIndexById(uint8_t id) {
-  for (int i = 0; i < motorCount_; i++) {
+  for (int i = 0; i < numMotors_; i++) {
     if (ids_[i] == id) return i;
   }
   return -1;
 }
-void NMLHandExo::setMotorLED(uint8_t id, bool state) {
-  // Sets specified motor LED to the specified state
-  if (state) {
-    dxl_.ledOn(id);
+int NMLHandExo::getMotorIDByName(const String& name) {
+  String n = name;
+  n.toUpperCase();
+  if (n == "WRIST") return 1;
+  if (n == "THUMB") return 2;
+  if (n == "INDEX") return 3;
+  if (n == "MIDDLE") return 4;
+  if (n == "RING") return 5;
+  if (n == "PINKY") return 6;
+  return -1;
+}
+int NMLHandExo::angleToTicks(float angle_deg, int index) {
+  // Map degrees to ticks: assume full range = 4096 ticks = 360 deg
+  float deg_per_tick = 300.0 / PULSE_RESOLUTION;
+  int ticks = static_cast<int>(angle_deg / deg_per_tick);
+  return ticks;
+}
+void NMLHandExo::calibrateZero(uint8_t id) {
+  int index = getIndexById(id);
+  if (index != -1) {
+    float current_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
+    zeroOffsets_[index] = current_angle;
+    debugPrint("[DEBUG] Calibrated zero for motor " + String(id) + ": " + String(current_angle, 2) + " deg");
   } else {
-    dxl_.ledOff(id);
+    debugPrint("[ERROR] Invalid motor ID for zero calibration: " + String(id));
   }
 }
-void NMLHandExo::setAllMotorLED(bool state) {
-  // Sets the state of all motor LEDs to the specified state
-  for (int i = 0; i < motorCount_; i++) {
+void NMLHandExo::resetAllZeros() {
+  for (int i = 0; i < numMotors_; ++i) {
     uint8_t id = ids_[i];
-    setMotorLED(id, state);
+    float current_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
+    zeroOffsets_[i] = current_angle;
+    debugPrint("[DEBUG] Zero offset set for motor " + String(id) + ": " + String(current_angle, 2) + " deg");
   }
 }
-void NMLHandExo::printAllPositions() {
-  for (int i = 0; i < motorCount_; i++) {
-    uint8_t id = ids_[i];
-    int pos = getPositionById(id);
-    Serial.print("Motor ");
-    Serial.print(id);
-    Serial.print(" position: ");
-    Serial.println(pos);
-  }
-}
-void NMLHandExo::rebootMotor(uint8_t id) {
-  dxl_.reboot(id);
-}
+
+// Position comands 
 float NMLHandExo::getRelativeAngle(uint8_t id) {
   int index = getIndexById(id);
   if (index == -1) return -1;
 
-  int pos = getPositionById(id);
-  int delta = pos - zeroOffsets_[index];
-  float degrees = (delta / 1023.0f) * 300.0f;
-  return degrees;
+  float abs_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
+  return abs_angle - zeroOffsets_[index];
+}
+float NMLHandExo::getAbsoluteAngle(uint8_t id) {
+  return dxl_.getPresentPosition(id, UNIT_DEGREE);
+}
+float NMLHandExo::getZeroOffset(uint8_t id) {
+  int index = getIndexById(id);
+  return (index != -1) ? zeroOffsets_[index] : 0.0f;
 }
 void NMLHandExo::setAngleById(uint8_t id, float angle_deg) {
   int index = getIndexById(id);
   if (index == -1) return;
 
+  // Apply offset to relative angle position
+  float abs_goal = zeroOffsets_[index] + angle_deg;
+
   // Clamp angle to joint limits (in degrees)
-  angle_deg = constrain(angle_deg, jointLimits_[index][0], jointLimits_[index][1]);
-
-  // Convert angle to ticks (e.g., -90 → -1024, 0 → 2048, +90 → +1024)
-  int delta_ticks = angleToTicks(angle_deg, index);  // e.g., -90° = -1024 ticks if 4096 = 360°
-
-  // Centered zero = calibrated zero offset (typically ~2048 ticks)
-  int center = zeroOffsets_[index];
-  int goal = center + delta_ticks;
-
-  // Wrap goal into 0–4095 range to prevent negative or invalid positions
-  goal = constrain(goal, 0, 4095);
+  abs_goal = constrain(angle_deg, jointLimits_[index][0], jointLimits_[index][1]);
 
   // Set new goal tick position
-  dxl_.setGoalPosition(id, goal);
-
-  debugPrint("Setting motor " + String(id) + " to angle " + String(angle_deg, 2) +
-             " deg (" + String(goal) + " ticks)");
+  dxl_.setGoalPosition(id, abs_goal, UNIT_DEGREE);
+  debugPrint("Setting motor " + String(id) + " to angle " + String(abs_goal, 2));
 }
 void NMLHandExo::setAngleByAlias(const String& alias, float angleDeg) {
   String name = alias;
@@ -195,24 +167,15 @@ void NMLHandExo::setAngleByAlias(const String& alias, float angleDeg) {
   else if (name == "RING") setAngleById(5, angleDeg);
   else if (name == "PINKY") setAngleById(6, angleDeg);
 }
-void NMLHandExo::calibrateZero(uint8_t id) {
-  int index = getIndexById(id);
-  if (index != -1) {
-    zeroOffsets_[index] = getPositionById(id);
-  }
-}
-void NMLHandExo::resetAllZeros() {
-  for (int i = 0; i < motorCount_; i++) {
-    zeroOffsets_[i] = getPositionById(ids_[i]);
-  }
-}
 
 // Torque commands
 void NMLHandExo::enableTorque(uint8_t id, bool enable) {
   if (enable) {
     dxl_.torqueOn(id);
+    debugPrint("Motor " + String(id) + " enabled");
   } else {
     dxl_.torqueOff(id);
+    debugPrint("Motor " + String(id) + " disabled");
   }
 }
 int16_t NMLHandExo::getCurrent(uint8_t id) {
@@ -225,8 +188,6 @@ float NMLHandExo::getTorque(uint8_t id) {
   float torque_Nm = current_mA * XL330_TORQUE_CONSTANT;
   return torque_Nm;  // in N·m
 }
-
-
 
 // Velocity commands
 void NMLHandExo::setVelocityLimit(uint8_t id, uint32_t vel) {
@@ -247,14 +208,33 @@ uint32_t NMLHandExo::getAccelerationLimit(uint8_t id) {
 }
 
 // Motor-specific commands
+void NMLHandExo::rebootMotor(uint8_t id) {
+  dxl_.reboot(id);
+  debugPrint("Motor ID:" + String(id) + " rebooted");
+}
 void NMLHandExo::getMotorInfo(uint8_t id) {
   dxl_.ping(id);  // could be expanded to read Model Number, Version, etc.
   debugPrint("Pinged motor ID: " + String(id));
 }
 void NMLHandExo::setBaudRate(uint8_t id, uint32_t baudrate) {
   dxl_.writeControlTableItem(BAUD_RATE, id, baudrate);
-  //debugPrint("Baud rate for motor " + String(id) + " set to " + String(baudrate));
+  debugPrint("Motor ID:" + String(id) + " baudrate set to " + String(baudrate));
 }
 uint32_t NMLHandExo::getBaudRate(uint8_t id) {
   return dxl_.readControlTableItem(BAUD_RATE, id);
+}
+void NMLHandExo::setMotorLED(uint8_t id, bool state) {
+  // Sets specified motor LED to the specified state
+  if (state) {
+    dxl_.ledOn(id);
+  } else {
+    dxl_.ledOff(id);
+  }
+}
+void NMLHandExo::setAllMotorLED(bool state) {
+  // Sets the state of all motor LEDs to the specified state
+  for (int i = 0; i < numMotors_; i++) {
+    uint8_t id = ids_[i];
+    setMotorLED(id, state);
+  }
 }

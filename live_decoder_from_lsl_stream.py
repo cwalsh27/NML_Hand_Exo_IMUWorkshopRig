@@ -13,10 +13,10 @@ import serial
 sampling_rate = 2000  # Hz
 PORT = 'COM6'
 
-stream_name = 'SAGAA'            # Search for active stream names using names_of_active_lsl_streams.py and connect to NML wifi
+stream_name = 'SAGAB'            # Search for active stream names using names_of_active_lsl_streams.py and connect to NML wifi
 buffer_length_sec = 5
 buffer_size = int(buffer_length_sec * sampling_rate)
-threshold = 1.5  # EMG envelope threshold. Change based on participant threshold
+threshold = 10  # EMG envelope threshold. Change based on participant threshold
 #threshold = 1.75  # EMG envelope threshold. Change based on participant threshold
 
 # Filters
@@ -24,7 +24,7 @@ bandpass_low = 20
 bandpass_high = 450
 notch_freq = 60
 notch_q = 30.0
-envelope_cutoff = 1  # Hz
+envelope_cutoff = 0.5  # Hz
 #envelope_cutoff = 1  # Hz
 envelope_order = 4
 
@@ -46,6 +46,19 @@ def design_lowpass(fs, cutoff=2.0, order=4):
     b, a = butter(order, cutoff / nyq, btype='low')
     return b, a
 
+def send_command(exo, msg):
+    """Send a command to the exoskeleton."""
+    if exo:
+        try:
+            if not msg.endswith('\n'):
+                msg = msg + '\n'
+            exo.write(msg.encode('utf-8'))
+            print(f"Command sent: {msg.strip()}")
+            time.sleep(0.01)
+        except Exception as e:
+            print(f"Error sending command: {e}")
+    else:
+        print("Exoskeleton not connected, command not sent.")
 
 ###############  Data Recording ############### 
 
@@ -102,13 +115,18 @@ except Exception as e:
 
 ############# Reconfigure the exo just in case ###################
 # Reboot motors
-exo.write(b"reboot:1\n")
-exo.write(b"disable_torque\n")
-print("torque disabled, please reset linkage")
-time.sleep(2)
-print("torque re-enabled")
-exo.write(b"enable_torque\n")
-exo.write(b"set_vel:1:30\n")
+send_command(exo, "reboot:1")
+time.sleep(1)
+#send_command(exo, "disable_torque:1")
+#print("torque disabled, please reset linkage")
+#time.sleep(2)
+#print("torque re-enabled")
+send_command(exo, "calibrate_zero:1\n")
+time.sleep(1)
+send_command(exo, "enable_torque:1\n")
+time.sleep(1)
+#send_command(exo, "set_vel:1:200\n")
+print("Exo configured")
 
 last_command = None  # Track last motor command to avoid repeats
 
@@ -139,21 +157,21 @@ raw_line, = axs[0].plot(x_axis, bandpass_buffer, color='gray', label='Bandpass-f
 axs[0].set_ylabel("Bandpass")
 axs[0].legend(loc='upper right')
 axs[0].grid(True)
-axs[0].set_ylim(-25, 25)
+axs[0].set_ylim(-45, 45)
 
 env_line, = axs[1].plot(x_axis, envelope_buffer, color='blue', label='EMG Envelope')
 axs[1].axhline(threshold, color='black', linestyle='--', linewidth=1, label='Threshold')
 axs[1].set_ylabel("Envelope")
 axs[1].legend(loc='upper right')
 axs[1].grid(True)
-axs[1].set_ylim(0, 2.5)
+axs[1].set_ylim(0, 10.5)
 
 if trigger_buffer is not None:
     trig_line, = axs[2].plot(x_axis, trigger_buffer, color='green', label='Trigger')
     axs[2].set_ylabel("TRIGGERS")
     axs[2].legend(loc='upper right')
     axs[2].grid(True)
-    axs[2].set_ylim(0, 1)
+    axs[2].set_ylim(-1, 260)
 
 axs[-1].set_xlabel("Time (s)")
 fig.suptitle(f"Real-Time EMG Decoding: {desired_labels[0]}")
@@ -215,12 +233,14 @@ def update(frame):
         if current_env > threshold:
             env_line.set_color('red')
             if exo and last_command != "go":
-                exo.write(b"set_angle:WRIST:90;\n")
+                print("Setting exo to go position")
+                send_command(exo, "set_angle:WRIST:40")
                 last_command = "go"
         else:
             env_line.set_color('blue')
             if exo and last_command != "rest":
-                exo.write(b"set_angle:WRIST:0;\n")
+                print("Setting exo to rest position")
+                send_command(exo, "set_angle:WRIST:0")
                 last_command = "rest"
 
     return [raw_line, env_line] + ([trig_line] if trigger_buffer is not None else [])
