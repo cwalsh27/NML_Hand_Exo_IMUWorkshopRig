@@ -1,7 +1,19 @@
+/**
+ * @file nml_hand_exo.cpp
+ * @brief Implementation file for the NML Hand Exoskeleton API.
+ *
+ * This file contains the implementation of the NMLHandExo class, which handles
+ * initialization, motor control, angle management, and device telemetry for the
+ * exoskeleton.
+ */
+
 #include "nml_hand_exo.h"
 #include <Dynamixel2Arduino.h>
 
 // Please modify it to suit your hardware.
+
+/// @brief Serial port for Dynamixel communication.
+/// @brief Pin assignment for the Dynamixel direction control pin.
 #if defined(ARDUINO_AVR_UNO) || defined(ARDUINO_AVR_MEGA2560) // When using DynamixelShield
   #include <SoftwareSerial.h>
   SoftwareSerial soft_serial(7, 8); // DYNAMIXELShield UART RX/TX
@@ -37,15 +49,23 @@
   const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
 #endif
 
-// Hardware constants for the dynamixel hardware and motors used
+
+/// @brief DYNAMIXEL protocol version used.
 const float DXL_PROTOCOL_VERSION = 2.0;
+
+/// @brief Ticks per revolution for the Dynamixel servos.
 const int PULSE_RESOLUTION = 4096;           // Ticks per revolution
+
+/// @brief Torque constant for XL330 servos, in N*m/mA.
 const float XL330_TORQUE_CONSTANT = 0.00038; // N*m / mA
 
+/// @brief Verbose output toggle for debugging.
 bool VERBOSE = false; // default to true
 
-//HardwareSerial& DEBUG_SERIAL = Serial; // default debug output
+/// @brief Debug serial stream used for logging.
 Stream& DEBUG_SERIAL = Serial;       // Using Serial USB for debugging output
+
+/// @brief Pointer to the debug stream used for conditional logging.
 Stream* debugStream = &DEBUG_SERIAL; // Making pointer for serial object
 
 // Debug printing function 
@@ -56,8 +76,23 @@ void debugPrint(const String& msg) {
 }
 
 
-NMLHandExo::NMLHandExo(const uint8_t* ids, int numMotors, const int jointLimits[][2])
-  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), jointLimits_(jointLimits), numMotors_(numMotors) {}
+NMLHandExo::NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointLimits[][2], const float* homeState)
+  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), jointLimits_(jointLimits), numMotors_(numMotors) 
+{
+  zeroOffsets_ = new float[numMotors_];
+
+  // Create offsets if values passed for homeState
+  if (homeState != nullptr) {
+    for (int i = 0; i < numMotors_; ++i) {
+      zeroOffsets_[i] = homeState[i];
+    }
+  } else {
+    // Default all to 0.0
+    for (int i = 0; i < numMotors_; ++i) {
+      zeroOffsets_[i] = 0.0f;
+    }
+  }
+}
 
 // Utility functions
 void NMLHandExo::initializeSerial(int baud) {
@@ -103,13 +138,26 @@ int NMLHandExo::getMotorIDByName(const String& name) {
   if (n == "PINKY") return 6;
   return -1;
 }
+String NMLHandExo::getNameByMotorID(uint8_t id) {
+  String name;
+  switch (id) {
+      case 1: name = "wrist"; break;
+      case 2: name = "thumb"; break;
+      case 3: name = "index"; break;
+      case 4: name = "middle"; break;
+      case 5: name = "ring"; break;
+      case 6: name = "pinky"; break;
+      default: name = "unknown"; break;
+  }
+  return name;
+}
 int NMLHandExo::angleToTicks(float angle_deg, int index) {
   // Map degrees to ticks: assume full range = 4096 ticks = 360 deg
   float deg_per_tick = 300.0 / PULSE_RESOLUTION;
   int ticks = static_cast<int>(angle_deg / deg_per_tick);
   return ticks;
 }
-void NMLHandExo::calibrateZero(uint8_t id) {
+void NMLHandExo::setZeroOffset(uint8_t id) {
   int index = getIndexById(id);
   if (index != -1) {
     float current_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
@@ -119,6 +167,10 @@ void NMLHandExo::calibrateZero(uint8_t id) {
     debugPrint("[ERROR] Invalid motor ID for zero calibration: " + String(id));
   }
 }
+float NMLHandExo::getZeroOffset(uint8_t id) {
+  int index = getIndexById(id);
+  return (index != -1) ? zeroOffsets_[index] : 0.0f;
+}
 void NMLHandExo::resetAllZeros() {
   for (int i = 0; i < numMotors_; ++i) {
     uint8_t id = ids_[i];
@@ -126,6 +178,40 @@ void NMLHandExo::resetAllZeros() {
     zeroOffsets_[i] = current_angle;
     debugPrint("[DEBUG] Zero offset set for motor " + String(id) + ": " + String(current_angle, 2) + " deg");
   }
+}
+String NMLHandExo::getDeviceInfo() {
+    char buffer[64];  // Adjust size as needed per line
+    String info = "version:";
+    info += VERSION;
+
+    snprintf(buffer, sizeof(buffer), ",n_motors:%u", numMotors_);
+    info += buffer;
+
+    for (int i=0; i < numMotors_; i++) {
+      // Build header
+      snprintf(buffer, sizeof(buffer), ",motor_%d:{", i);
+      info += buffer;
+      
+      // Add name
+      String name = getNameByMotorID(ids_[i]);
+      info += "name:" + name;
+
+      // Add motor id
+      snprintf(buffer, sizeof(buffer), ",id:%u", ids_[i]);
+      info += buffer;
+
+      // Get relative angle
+      float angle = getRelativeAngle(ids_[i]);
+      snprintf(buffer, sizeof(buffer), ",angle:%.2f", angle);
+      info += buffer;
+
+      // Get torque
+      float torque = getTorque(ids_[i]);
+      snprintf(buffer, sizeof(buffer), ",torque:%.2f}", torque);
+      info += buffer;
+    }
+
+    return info;
 }
 
 // Position comands 
@@ -136,12 +222,69 @@ float NMLHandExo::getRelativeAngle(uint8_t id) {
   float abs_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
   return abs_angle - zeroOffsets_[index];
 }
+void NMLHandExo::setRelativeAngle(uint8_t id, float relativeAngle) {
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID: " + String(id));
+    return;
+  }
+
+  // Compute the absolute angle by adding the stored offset
+  float abs_goal = zeroOffsets_[index] + relativeAngle;
+
+  // Clamp the absolute goal to the joint limits (if necessary)
+  abs_goal = constrain(abs_goal, jointLimits_[index][0], jointLimits_[index][1]);
+
+  // Command the motor to the absolute position
+  dxl_.setGoalPosition(id, abs_goal, UNIT_DEGREE);
+
+  debugPrint("Motor " + String(id) + " set to relative angle " + String(relativeAngle, 2) +
+             " deg (absolute: " + String(abs_goal, 2) + " deg)");
+}
 float NMLHandExo::getAbsoluteAngle(uint8_t id) {
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID: " + String(id));
+    return -1;
+  }
+
   return dxl_.getPresentPosition(id, UNIT_DEGREE);
 }
-float NMLHandExo::getZeroOffset(uint8_t id) {
+void NMLHandExo::setAbsoluteAngle(uint8_t id, float absoluteAngle) {
   int index = getIndexById(id);
-  return (index != -1) ? zeroOffsets_[index] : 0.0f;
+  if (index == -1) {
+    debugPrint("Invalid motor ID: " + String(id));
+    return;
+  }
+  dxl_.setGoalPosition(id, absoluteAngle, UNIT_DEGREE);
+  debugPrint("Setting motor " + String(id) + " to absolute angle " + String(absoluteAngle, 2));
+}
+float NMLHandExo::getZeroAngle(uint8_t id){
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID: " + String(id));
+    return -1;
+  }
+
+  return zeroOffsets_[index];
+}
+void NMLHandExo::setHome(uint8_t id){
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID: " + String(id));
+    return;
+  }
+
+  // Command the motor to move to the stored zero offset position
+  float homeAngle = zeroOffsets_[index];
+  dxl_.setGoalPosition(id, homeAngle, UNIT_DEGREE);
+  debugPrint("Motor " + String(id) + " homing to " + String(homeAngle, 2) + " deg");
+}
+void NMLHandExo::homeAllMotors() {
+  for (int i = 0; i < numMotors_; ++i) {
+    uint8_t id = ids_[i];
+    setHome(id);
+  }
 }
 void NMLHandExo::setAngleById(uint8_t id, float angle_deg) {
   int index = getIndexById(id);
@@ -152,6 +295,8 @@ void NMLHandExo::setAngleById(uint8_t id, float angle_deg) {
 
   // Clamp angle to joint limits (in degrees)
   abs_goal = constrain(angle_deg, jointLimits_[index][0], jointLimits_[index][1]);
+
+  //if (abs_goal < 0) abs_goal += 360; // Dynamixel motors can't accept negative values
 
   // Set new goal tick position
   dxl_.setGoalPosition(id, abs_goal, UNIT_DEGREE);

@@ -1,49 +1,65 @@
 # NML_Hand_Exo
 
-![Python](https://img.shields.io/badge/python-3.10-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-
-This repository holds tools and demonstrations for using the NML Hand Exo device. 
-
-<!-- ![](/assets/hand-exo.jpg) -->
-
 <p align="center">
-  <img src="assets/hand-exo.jpg" width="80%"/>
+  <img src="docs/source/static/hand-exo.jpg" width="80%"/>
 </p>
 
+[![Python](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://github.com/Neuro-Mechatronics-Interfaces/NML_Hand_Exo/actions/workflows/gh-pages.yml/badge.svg)](https://github.com/Neuro-Mechatronics-Interfaces/NML_Hand_Exo/actions/workflows/gh-pages.yml)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://neuro-mechatronics-interfaces.github.io/NML_Hand_Exo/)
 
-Code was written and tested using Windows 11, Python 3.10.
+This repository contains the firmware and Python tools for controlling the **NML Hand Exoskeleton**—a modular, open-source robotic hand exoskeleton platform for research and prototyping.
 
-## Setup
+## 🚀 Overview
 
-### Installation 
-1. (Choose one): Create a virtual environment using [Anaconda](https://www.anaconda.com/products/distribution) or Python's virtualenv
-   - Using Anaconda:
-      ~~~
+The **NML Hand Exoskeleton** includes:
+- 🦾 Microcontroller firmware (Arduino/C++): real-time motor control and communication.
+- 🐍 Python API: high-level interface for controlling the device.
+- 🛠️ Demo scripts: examples of using the device with real-time EMG streaming and GUI control.
+
+Code was tested on **Windows 11**, **Python 3.10**.
+
+---
+
+## Installation 
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Neuro-Mechatronics-Interfaces/NML_Hand_Exo.git
+cd NML_Hand_Exo
+```
+
+### 2. Create a virtual environment (recommended)
+
+Choose one of the following methods to create a virtual environment for this project:
+   - Using [Anaconda](https://www.anaconda.com/products/distribution) :
+      ```bash
       conda create -n handexo
       conda activate handexo
-      ~~~
-   - ... or using Python's virtualenv:
-     ~~~
+      ```
+   - or using Python's virtualenv:
+     ```bash
      python3 -m venv .handexo
-     source .handexo/bin/activate # Linux
-     call .handexo/Scripts/activate # Windows
-     ~~~
-     
-2. Clone the repository and navigate to the project directory
-   ~~~
-   git clone https://github.com/Neuro-Mechatronics-Interfaces/NML_Hand_Exo.git
-   cd NML_Hand_Exo
-   ~~~
-   
-3. Install Python dependencies
-    ~~~
-    pip install -r requirements.txt
-    ~~~
-   
-### Exo Firmware
+     source .handexo/bin/activate # On Linux/Mac
+     call .handexo/Scripts/activate # On Windows
+     ```
+  
+### 3. Install Python dependencies
 
-The exo device uses an [openRB-150](https://emanual.robotis.com/docs/en/parts/controller/openrb-150/) microcontroller from ROBOTIS. The code to flash onto the microcontroller is located in the `firmware` directory and uploaded using an [Arduino IDE](https://www.arduino.cc/en/software/). 
+```bash
+pip install -r requirements.txt
+```
+
+For local development, you can also install the python API as a package 
+```bash
+pip install -e .
+```
+   
+## Exo Firmware
+
+The exo device uses an [openRB-150](https://emanual.robotis.com/docs/en/parts/controller/openrb-150/) microcontroller from ROBOTIS. The firmware is located in `src/cpp/nml_hand_exo` and can be uploaded via the [Arduino IDE](https://www.arduino.cc/en/software/). 
 
 The firmware includes a class NMLHandExo, which handles:
 
@@ -61,51 +77,35 @@ To upload the firmware:
 
 ## Usage
 
-You can control the hand exoskeleton over USB or Bluetooth using simple, structured serial commands. Each command must end with a `;` delimiter. The commands are structured as follows:
-
-```plaintext
-| Command                      | Description                                                      |
-|-----------------------------|------------------------------------------------------------------|
-| `set_joint:<alias>:<value>` | Set position of a single joint (0–1023)                          |
-| `set_joints:<alias1>:<val1>,<alias2>:<val2>,...` | Set multiple joints in one line               |
-| `get_joint:<alias>`         | Query current raw position of a joint                             |
-| `get_joints`                | Print all joint positions                                         |
-| `set_angle:<alias>:<deg>`   | Set angle in degrees (0°–300°) for a joint                        |
-| `get_angle:<alias>`         | Get current angle (degrees) of a joint                            |
-| `calibrate_zero:<alias>`    | Set current joint position as zero offset                        |
-| `led:<alias>:on/off`        | Toggle LED on a single joint                                     |
-| `reboot:<alias>`            | Reboot a motor (useful if it becomes unresponsive)               |
-```
-
-### 🧠 Aliases Supported
-
-- `WRIST`, `THUMB`, `INDEX`, `MIDDLE`, `RING`, `PINKY`
-
-Values are raw position values within joint limits defined for each motor. Each command also ends with a ";\n" delimiter. You can send multiple commands in one message. Supported aliases are `THUMB`, `INDEX`, `MIDDLE`, `RING`, `PINKY`, `WRIST`
-
+An example of using the Python API for scripting and control:
 ```python
-import serial
-import time
+from nml_hand_exo.hand_exo import HandExo
 
-ser = serial.Serial('COMX', 115200)  # Replace COMX with your actual port
-time.sleep(1)
-
-# Set index and thumb finger positions
-ser.write(b"set_joints:THUMB:600,INDEX:650;\n")
-
-# Set wrist to 30 degrees
-ser.write(b"set_angle:WRIST:30;\n")
-
-# Turn off LED on thumb
-ser.write(b"led:THUMB:off;\n")
-
-ser.close()
+exo = HandExo('COM3', baudrate=57600)
+exo.enable_motor(1)
+exo.set_motor_angle(1, 45)
+angle = exo.get_motor_angle(1)
+print(f"Motor angle: {angle} degrees")
+exo.disable_motor(1)
 ```
+
+You can control the hand exoskeleton over USB or Bluetooth using simple, structured serial commands. For example:
+
+- `set_angle:WRIST:30` — set wrist motor to 30 degrees.
+
+- `enable:1` — enable motor 1 torque.
+
+- `get_angle:1` — query relative angle.
+
+Supported aliases are `THUMB`, `INDEX`, `MIDDLE`, `RING`, `PINKY`, `WRIST`
+
+For a complete list of commands, see the [Usage Guide](https://yourusername.github.io/NML_Hand_Exo/usage.html).
+
 ## Demo
 
 #### MindRove EMG Streaming
 
-![](/assets/pyqtemg.gif)
+![](/docs/source/_static/pyqtemg.gif)
 
 A demo script is included to showcase real-time plotting of EMG signals from a connected MindRove EMG band. 
 1) Connect your MindRove EMG Band to the PC (using a Wifi dongle if you want to maintain internet connection on a separate wifi network)
@@ -113,6 +113,24 @@ A demo script is included to showcase real-time plotting of EMG signals from a c
    ~~~
    python demo_mindrove_realtime.py
    ~~~
+
+## 📖 How to Cite
+
+If you use this project in your research, please cite it as:
+
+Jonathan Shulgach & Kriti Kacker. (2025). NML Hand Exoskeleton [Computer software]. https://github.com/yourusername/NML_Hand_Exo
+
+BibTeX:
+```bibtex
+@misc{shulgach_kacker_2025_nmlhandexo,
+  author       = {Jonathan Shulgach and Kriti Kacker},
+  title        = {NML Hand Exoskeleton},
+  year         = {2025},
+  publisher    = {GitHub},
+  journal      = {GitHub repository},
+  howpublished = {\url{https://github.com/yourusername/NML_Hand_Exo}}
+}
+
 ## License
 
 This project is licensed under the MIT License.
