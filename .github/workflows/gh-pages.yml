@@ -30,6 +30,12 @@ jobs:
             m2r2 \
             sphinx_rtd_theme
         pip install -r requirements.txt || true
+
+    - name: Run Doxygen
+      working-directory: docs
+      run: |
+        doxygen Doxyfile
+
     - name: Build docs
       run: |
         cd docs
