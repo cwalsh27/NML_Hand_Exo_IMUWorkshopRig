@@ -1,21 +1,3 @@
-"""
-hand_exo.py
-
-This module provides a Python interface for communicating with the NML Hand Exoskeleton
-over a serial connection.
-
-Usage example:
-
-    from hand_exo import HandExo
-
-    exo = HandExo('COM3', baudrate=57600)
-    exo.enable_motor(1)
-    exo.set_motor_angle(1, 45)
-    angle = exo.get_motor_angle(1)
-    print(f"Current angle: {angle} degrees")
-    exo.disable_motor(1)
-"""
-
 import time
 import serial
 
@@ -32,10 +14,7 @@ class HandExo(object):
     - Retrieve device information
     - Send low-level serial commands
 
-    Example:
-        exo = HandExo(port='COM3')
-        exo.enable_motor(1)
-        exo.set_motor_angle(1, 45)
+
     """
     def __init__(self, name='NMLHandExo', port: str = None, baudrate: int = 57600, command_delimiter: str = '\n', send_delay: float = 0.01,
                  verbose: bool = False):
@@ -49,7 +28,9 @@ class HandExo(object):
             command_delimiter (str): Delimiter used to separate commands (default is '\n').
             send_delay (float): Delay in seconds after sending a command to allow processing (default is 0.01).
             verbose (bool): If True, enables verbose logging of commands and responses (default is False).
+
         """
+
         self.name = name
         self.port = port
         self.baudrate = baudrate
@@ -69,6 +50,7 @@ class HandExo(object):
         Args:
             *argv             : (str) Messages to log.
             warning           : (bool) If True, prints the message in yellow.
+
         """
         if self.verbose:
             msg = ''.join(argv)
@@ -85,6 +67,7 @@ class HandExo(object):
         Args:
             port (str): Serial port to connect to.
             baudrate (int): Baud rate for the serial connection.
+
         """
         if not self.connected:
             try:
@@ -103,6 +86,7 @@ class HandExo(object):
 
         Args:
             cmd (str): Command to send to the exoskeleton.
+
         """
         if not cmd.endswith(self.command_delimiter):
             cmd += self.command_delimiter
@@ -119,6 +103,7 @@ class HandExo(object):
         
         Returns:
             str: The response from the exoskeleton, or an empty string if no response.
+
         """
         try:
             if self.device.in_waiting:
@@ -138,6 +123,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         if motor_id == 'all':
             self.send_command("home:all")
@@ -150,6 +136,7 @@ class HandExo(object):
 
         Returns:
             dict: A dictionary containing version and motor information.
+
         """
         self.send_command("info")
         raw = self._receive()
@@ -181,6 +168,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"enable:{motor_id}")
 
@@ -193,6 +181,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"disable:{motor_id}")
 
@@ -205,6 +194,7 @@ class HandExo(object):
 
         Returns:
             float: Current angle of the motor in degrees.
+
         """
         self.send_command(f"get_angle:{motor_id}")
         response = self._receive()
@@ -224,6 +214,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         if isinstance(motor_id, str):
             cmd = f"set_angle:{motor_id}:{angle}"
@@ -240,6 +231,7 @@ class HandExo(object):
 
         Returns:
             float: Absolute angle of the motor in degrees.
+
         """
         self.send_command(f"get_absangle:{motor_id}")
         response = self._receive()
@@ -259,6 +251,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         if isinstance(motor_id, str):
             cmd = f"set_absangle:{motor_id}:{angle}"
@@ -275,6 +268,7 @@ class HandExo(object):
 
         Returns:
             float: Current velocity of the motor in degrees per second.
+
         """
         self.send_command(f"get_vel:{motor_id}")
         response = self._receive()
@@ -294,6 +288,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"set_vel:{motor_id}:{velocity}")
 
@@ -306,6 +301,7 @@ class HandExo(object):
 
         Returns:
             float: Current acceleration of the motor in degrees per second squared.
+
         """
         self.send_command(f"get_accel:{motor_id}")
         response = self._receive()
@@ -325,6 +321,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"set_accel:{motor_id}:{acceleration}")
 
@@ -337,6 +334,7 @@ class HandExo(object):
 
         Returns:
             float: Current torque of the motor in Newton-meters.
+
         """
         self.send_command(f"get_torque:{motor_id}")
         response = self._receive()
@@ -355,6 +353,7 @@ class HandExo(object):
 
         Returns:
             float: Current draw of the motor in Amperes.
+
         """
         self.send_command(f"get_current:{motor_id}")
         response = self._receive()
@@ -373,6 +372,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"reboot:{motor_id}")
 
@@ -385,6 +385,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"led:{motor_id}:on")
 
@@ -397,6 +398,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         self.send_command(f"led:{motor_id}:off")
 
@@ -406,6 +408,7 @@ class HandExo(object):
 
         Returns:
             str: A string containing the help information from the exoskeleton.
+
         """
         self.send_command("help")
         return self._receive()
@@ -416,6 +419,7 @@ class HandExo(object):
 
         Returns:
             None
+
         """
         if self.device and self.device.is_open:
             self.device.close()
