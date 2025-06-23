@@ -7,23 +7,23 @@ class HandExo(object):
     Class to control the NML Hand Exoskeleton via serial communication.
 
     Features:
-    - Enable/disable motors
-    - Move motors to specific angles
-    - Query status (angle, torque, current)
-    - Configure velocity and acceleration
-    - Retrieve device information
-    - Send low-level serial commands
-
+      - Enable/disable motors
+      - Move motors to specific angles
+      - Query status (angle, torque, current)
+      - Configure velocity and acceleration
+      - Retrieve device information
+      - Send low-level serial commands
 
     """
+
     def __init__(self, name='NMLHandExo', port: str = None, baudrate: int = 57600, command_delimiter: str = '\n', send_delay: float = 0.01,
                  verbose: bool = False):
         """ 
         Initializes the HandExo interface.
         
         Args:
-            name  (str): Name of the exoskeleton instance.
-            port  (str): Serial port to connect to (e.g., 'COM3' or '/dev/ttyUSB0').
+            name (str): Name of the exoskeleton instance.
+            port (str): Serial port to connect to (e.g., 'COM3' or '/dev/ttyUSB0').
             baudrate (int): Baud rate for the serial connection (default is 57600).
             command_delimiter (str): Delimiter used to separate commands (default is '\n').
             send_delay (float): Delay in seconds after sending a command to allow processing (default is 0.01).
@@ -362,6 +362,101 @@ class HandExo(object):
         except (ValueError, IndexError):
             print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
             return 0.0
+
+    def get_motor_status(self, motor_id: (int or str)) -> dict:
+        """
+        Retrieves the status of the specified motor, including angle, torque, current, velocity, and acceleration.
+
+        Args:
+            motor_id (int or str): ID of the motor to query.
+
+        Returns:
+            dict: A dictionary containing the motor's status.
+
+        """
+        self.send_command(f"get_status:{motor_id}")
+        response = self._receive()
+        status = {}
+        if response:
+            try:
+                parts = response.split(',')
+                status['angle'] = float(parts[0].split(':')[-1])
+                status['torque'] = float(parts[1].split(':')[-1])
+                status['current'] = float(parts[2].split(':')[-1])
+                status['velocity'] = float(parts[3].split(':')[-1])
+                status['acceleration'] = float(parts[4].split(':')[-1])
+                return status
+            except (ValueError, IndexError):
+                print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
+        return {}
+
+    def get_motor_limits(self, motor_id: (int or str)) -> tuple:
+        """
+        Retrieves the limits for the specified motor, including minimum and maximum angles.
+
+        Args:
+            motor_id (int or str): ID of the motor to query.
+
+        Returns:
+            tuple: A tuple containing the minimum and maximum angles of the motor.
+
+        """
+        self.send_command(f"get_motor_limits:{motor_id}")
+        response = self._receive() # Should get "Motor {id} limits:[{val},{val}]"
+        limits = None
+        if response:
+            try:
+                parts = response.split(':')
+                if len(parts) == 3 and parts[0].startswith("Motor") and parts[1].strip() == "limits":
+                    limits = tuple(map(float, parts[2].strip('[]').split(',')))
+                else:
+                    print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
+            except (ValueError, IndexError):
+                print(f"[ERROR] Failed to parse limits for motor {motor_id}: {response}")
+        return limits if limits else (None, None)
+
+    def set_motor_upper_limit(self, motor_id: (int or str), upper_limit: float):
+        """
+        Sets the upper limit for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to set the upper limit for.
+            upper_limit (float): Desired upper limit in degrees.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"set_upper_limit:{motor_id}:{upper_limit}")
+
+    def set_motor_lower_limit(self, motor_id: (int or str), lower_limit: float):
+        """
+        Sets the lower limit for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to set the lower limit for.
+            lower_limit (float): Desired lower limit in degrees.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"set_lower_limit:{motor_id}:{lower_limit}")
+
+    def set_motor_limits(self, motor_id: (int or str), lower_limit: float, upper_limit: float):
+        """
+        Sets both the lower and upper limits for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to set the limits for.
+            lower_limit (float): Desired lower limit in degrees.
+            upper_limit (float): Desired upper limit in degrees.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"set_limits:{motor_id}:{lower_limit}:{upper_limit}")
 
     def reboot_motor(self, motor_id: (int or str)):
         """

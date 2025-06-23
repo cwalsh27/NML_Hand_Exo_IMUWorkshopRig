@@ -77,8 +77,16 @@ void debugPrint(const String& msg) {
 
 
 NMLHandExo::NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointLimits[][2], const float* homeState)
-  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), jointLimits_(jointLimits), numMotors_(numMotors) 
+  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), numMotors_(numMotors) //jointLimits_(jointLimits),
 {
+
+  // Allocate and copy joint limits
+  jointLimits_ = new float[numMotors_][2];
+  for (int i = 0; i < numMotors_; ++i) {
+    jointLimits_[i][0] = jointLimits[i][0]; // min
+    jointLimits_[i][1] = jointLimits[i][1]; // max
+  }
+
   zeroOffsets_ = new float[numMotors_];
 
   // Create offsets if values passed for homeState
@@ -92,6 +100,14 @@ NMLHandExo::NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointL
       zeroOffsets_[i] = 0.0f;
     }
   }
+
+  // Allocate and initialize current limits
+  currentLimits_ = new uint16_t[numMotors_];
+  for (int i = 0; i < numMotors_; ++i) {
+      currentLimits_[i] = 100; // default 100 mA or whatever safe default
+  }
+
+  // If jointLimits_, zeroOffsets_, currentLimits_ were dynamically allocated, make sure to add a destructor.
 }
 
 // Utility functions
@@ -105,8 +121,17 @@ void NMLHandExo::initializeMotors() {
   for (int i = 0; i < numMotors_; i++) {
     uint8_t id = ids_[i];
     dxl_.torqueOff(id);
-    dxl_.setOperatingMode(id, OP_POSITION);  // Default mode is set to position mode
+
+    // Set Operating Mode to Current-Based Position Control
+    //dxl_.setOperatingMode(id, OP_CURRENT_BASED_POSITION);
+    //dxl_.writeControlTableItem(ControlTableItem::OPERATING_MODE, id, 5);
+    dxl_.setOperatingMode(id, OP_CURRENT_BASED_POSITION);
+    //dxl_.setOperatingMode(id, OP_POSITION);  // Default mode is set to position mode
+
     dxl_.torqueOn(id);
+
+    //dxl_.writeControlTableItem(ControlTableItem::GOAL_CURRENT, currentLimits_[i], 100);
+    dxl_.setGoalCurrent(id, currentLimits_[i]);
   }
 }
 int NMLHandExo::getMotorID(const String& token) {
@@ -205,6 +230,12 @@ String NMLHandExo::getDeviceInfo() {
       snprintf(buffer, sizeof(buffer), ",angle:%.2f", angle);
       info += buffer;
 
+      // Get joint limits
+      float minLimit = jointLimits_[i][0];
+      float maxLimit = jointLimits_[i][1];
+      snprintf(buffer, sizeof(buffer), ",limits:[%.2f,%.2f]", minLimit, maxLimit);
+      info += buffer;
+
       // Get torque
       float torque = getTorque(ids_[i]);
       snprintf(buffer, sizeof(buffer), ",torque:%.2f}", torque);
@@ -229,14 +260,20 @@ void NMLHandExo::setRelativeAngle(uint8_t id, float relativeAngle) {
     return;
   }
 
+  // Apply current limit before sending position
+  //dxl_.writeControlTableItem(GOAL_CURRENT, id, currentLimits_[index]);
+
   // Compute the absolute angle by adding the stored offset
   float abs_goal = zeroOffsets_[index] + relativeAngle;
 
   // Clamp the absolute goal to the joint limits (if necessary)
   abs_goal = constrain(abs_goal, jointLimits_[index][0], jointLimits_[index][1]);
 
+  //float abs_goal_ticks = angleToTicks(abs_goal,0);
+
   // Command the motor to the absolute position
   dxl_.setGoalPosition(id, abs_goal, UNIT_DEGREE);
+  //dxl_.writeControlTableItem(ControlTableItem::GOAL_POSITION, id, abs_goal_ticks);
 
   debugPrint("Motor " + String(id) + " set to relative angle " + String(relativeAngle, 2) +
              " deg (absolute: " + String(abs_goal, 2) + " deg)");
@@ -313,6 +350,73 @@ void NMLHandExo::setAngleByAlias(const String& alias, float angleDeg) {
   else if (name == "PINKY") setAngleById(6, angleDeg);
 }
 
+void NMLHandExo::setMotorLowerBound(uint8_t id, float lowerBound) {
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID for lower bound update: " + String(id));
+    return;
+  }
+
+  if (lowerBound > jointLimits_[index][1]) {
+    debugPrint("Lower bound exceeds current upper bound for motor " + String(id));
+    return;
+  }
+
+  jointLimits_[index][0] = lowerBound;
+  debugPrint("Set lower bound for motor " + String(id) + " to " + String(lowerBound) + " deg");
+}
+
+void NMLHandExo::setMotorUpperBound(uint8_t id, float upperBound) {
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID for upper bound update: " + String(id));
+    return;
+  }
+
+  if (upperBound < jointLimits_[index][0]) {
+    debugPrint("Upper bound below current lower bound for motor " + String(id));
+    return;
+  }
+
+  jointLimits_[index][1] = upperBound;
+  debugPrint("Set upper bound for motor " + String(id) + " to " + String(upperBound) + " deg");
+}
+
+String NMLHandExo::getMotorLimits(uint8_t id) {
+  int index = getIndexById(id);
+  if (index == -1) {
+    return "[ERROR] Invalid motor ID: " + String(id);
+  }
+
+  float min = jointLimits_[index][0];
+  float max = jointLimits_[index][1];
+  return "[" + String(min, 2) + ", " + String(max, 2) + "]";
+}
+
+void NMLHandExo::setMotorLimits(uint8_t id, float lowerLimit, float upperLimit) {
+  int index = getIndexById(id);
+  if (index == -1) {
+    debugPrint("Invalid motor ID for setting limits: " + String(id));
+    return;
+  }
+
+  // Check if limits are valid
+  if (lowerLimit >= upperLimit) {
+    debugPrint("Invalid limits for motor " + String(id) + ": [" + String(lowerLimit) + ", " + String(upperLimit) + "]");
+    return;
+  }
+
+  jointLimits_[index][0] = lowerLimit;
+  jointLimits_[index][1] = upperLimit;
+  debugPrint("Set limits for motor " + String(id) + ": [" + String(lowerLimit) + ", " + String(upperLimit) + "]");
+
+  // Update the control table items for the motor
+  //dxl_.writeControlTableItem(UPPER_LIMIT, id, angleToTicks(upperLimit, index));
+  //dxl_.writeControlTableItem(LOWER_LIMIT, id, angleToTicks(lowerLimit, index));
+}
+
+
+
 // Torque commands
 void NMLHandExo::enableTorque(uint8_t id, bool enable) {
   if (enable) {
@@ -323,15 +427,41 @@ void NMLHandExo::enableTorque(uint8_t id, bool enable) {
     debugPrint("Motor " + String(id) + " disabled");
   }
 }
+
+void NMLHandExo::setCurrentLimit(uint8_t id, uint16_t current_mA) {
+    int index = getIndexById(id);
+    if (index == -1) {
+        debugPrint("Invalid motor ID for setting current limit: " + String(id));
+        return;
+    }
+    currentLimits_[index] = current_mA;
+    dxl_.writeControlTableItem(GOAL_CURRENT, id, current_mA);
+    debugPrint("Set current limit for motor " + String(id) + ": " + String(current_mA) + " mA");
+}
+
 int16_t NMLHandExo::getCurrent(uint8_t id) {
   return dxl_.readControlTableItem(PRESENT_CURRENT, id);
 }
+
 float NMLHandExo::getTorque(uint8_t id) {
   // Each unit = 2.69 mA; torque constant = 0.38 mN·m/mA = 0.00038 N·m/mA
   int16_t raw_current = NMLHandExo::getCurrent(id);
   float current_mA = raw_current * 2.69;
   float torque_Nm = current_mA * XL330_TORQUE_CONSTANT;
   return torque_Nm;  // in N·m
+}
+
+void NMLHandExo::setTorque(uint8_t id, float torque_Nm) {
+    int index = getIndexById(id);
+    if (index == -1) {
+        debugPrint("Invalid motor ID: " + String(id));
+        return;
+    }
+
+    // Convert Nm to mA
+    uint16_t current_mA = (uint16_t)(torque_Nm / XL330_TORQUE_CONSTANT);
+    setCurrentLimit(id, current_mA);
+    debugPrint("Torque limit for motor " + String(id) + " set to " + String(torque_Nm, 4) + " Nm (current limit: " + String(current_mA) + " mA)");
 }
 
 // Velocity commands

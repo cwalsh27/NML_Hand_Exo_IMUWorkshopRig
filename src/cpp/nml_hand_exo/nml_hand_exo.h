@@ -35,6 +35,13 @@ class NMLHandExo {
     /// @param homeState Optional array of home positions (in degrees). Defaults to zero offsets.
     NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointLimits[][2], const float* homeState = nullptr);
 
+    /// @brief Destructor.
+    ~NMLHandExo() {
+      delete[] jointLimits_;
+      delete[] zeroOffsets_;
+      delete[] currentLimits_;
+    }
+
     // -----------------------------------------------------------
     // Utility functions
     // -----------------------------------------------------------
@@ -134,6 +141,29 @@ class NMLHandExo {
     /// @param angleDeg Angle in degrees.
     void setAngleByAlias(const String& alias, float angleDeg);
 
+    /// @brief Set the lower joint limit (in degrees) for a motor.
+    /// @param id Motor ID.
+    /// @param lowerBound New lower bound in degrees.
+    void setMotorLowerBound(uint8_t id, float lowerBound);
+
+    /// @brief Set the upper joint limit (in degrees) for a motor.
+    /// @param id Motor ID.
+    /// @param upperBound New upper bound in degrees.
+    void setMotorUpperBound(uint8_t id, float upperBound);
+
+    /// @brief Get the joint angle limits for a motor.
+    /// @param id Motor ID.
+    /// @return A string in the format "[min, max]" or error message.
+    String getMotorLimits(uint8_t id);
+
+    /// @brief Set the joint angle limits for a motor.
+    /// @param id Motor ID.
+    /// @param lowerLimit New lower limit in degrees.
+    /// @param upperLimit New upper limit in degrees.
+    void setMotorLimits(uint8_t id, float lowerLimit, float upperLimit);
+
+
+
     // -----------------------------------------------------------
     // Torque commands
     // -----------------------------------------------------------
@@ -147,6 +177,13 @@ class NMLHandExo {
     /// @param id Motor ID.
     /// @return Raw current value.
     int16_t getCurrent(uint8_t id);
+
+    void setCurrentLimit(uint8_t id, uint16_t current_mA);
+
+    /// @brief Set the calculated torque in N·m for a motor.
+    /// @param id Motor ID.
+    /// @return Torque in Newton-meters.
+    void setTorque(uint8_t id, float torque_Nm);
 
     /// @brief Get the calculated torque in N·m for a motor.
     /// @param id Motor ID.
@@ -213,7 +250,7 @@ class NMLHandExo {
     void setAllMotorLED(bool state);
 
     /// @brief Current software version.
-    static constexpr const char* VERSION = "1.2.1";
+    static constexpr const char* VERSION = "1.2.3";
 
   private:
     /// @brief Dynamixel2Arduino object for motor communication.
@@ -226,10 +263,13 @@ class NMLHandExo {
     uint8_t numMotors_;                  // Number of motors being used, should be detected by the length of motor ids passed
 
     /// @brief Pointer to 2D array of joint limits [min, max] for each motor.
-    const float (*jointLimits_)[2];      // Pointer to 2D array of joint limits
+    float (*jointLimits_)[2];      // Pointer to 2D array of joint limits
 
     /// @brief Array of zero offsets for each motor.
     float* zeroOffsets_;                 // Track absolute zero positions
+
+    /// @brief Array of current limits for each motor
+    uint16_t* currentLimits_;
 };
 
 #endif
