@@ -11,19 +11,29 @@
 #include <Dynamixel2Arduino.h>
 using namespace ControlTableItem;
 
-
 /// @brief Verbose output toggle for debugging.
 extern bool VERBOSE;
 
-/// @brief Debug serial stream used for logging.
-extern Stream& DEBUG_SERIAL;
+/// @brief Bluetooth serial stream used for commands.
+extern Stream& BLE_SERIAL;
 
-/// @brief Pointer to the debug stream used for conditional logging.
 extern Stream* debugStream;
 
 /// @brief Debugging print helper function.
 /// @param msg The message to print.
 void debugPrint(const String& msg);
+
+/// @brief Mode press function
+void onModeButtonPress();
+
+/// @brief Enum to manage the operating mode of the exo
+enum ExoOperatingMode {
+  FREE = 0,
+  GESTURE_FIXED,
+  GESTURE_CONTINUOUS,
+  GESTURE_CALIBRATION
+};
+
 
 /// @brief Class to manage the NML Hand Exoskeleton, providing initialization, motor control, and telemetry.
 class NMLHandExo {
@@ -52,6 +62,14 @@ class NMLHandExo {
 
     /// @brief Initialize all motors: disables torque, sets position mode, then re-enables torque.
     void initializeMotors();
+
+    /// @brief Get the current operating mode of the motors
+    /// @return The motor control mode.
+    String getMotorControlMode();
+
+    /// @brief Set the operating mode of the motors
+    /// @param name Name of the mode (e.g. "position", "current_position", "velocity").
+    void setMotorControlMode(const String& name);
 
     /// @brief Get the motor ID from a user-supplied token (either name or ID as a string).
     /// @param token The token string (e.g. "WRIST" or "1").
@@ -92,8 +110,60 @@ class NMLHandExo {
     void resetAllZeros();
 
     /// @brief Get a string summarizing the device information.
-    /// @return Information string.
-    String getDeviceInfo();
+    // @return Information string.
+    //String getDeviceInfo();
+    void printDeviceInfo(Stream& out);
+
+    /// @brief Get the number of motors
+    /// @return integer, number of motors.
+    int getMotorCount();
+
+    // -----------------------------------------------------------
+    // Calibration functions
+    // -----------------------------------------------------------
+
+    /// @brief Start the calibration process for the exoskeleton.
+    /// @param enableTimedCalibration If true, enables timed calibration mode.
+    /// @param duration Duration in seconds for timed calibration.
+    void beginCalibration(bool enableTimedCalibration, int duration);
+
+    /// @brief Update the calibration state, checking if the calibration is complete.
+    void updateCalibration();
+
+    /// @brief Check if the exoskeleton is currently calibrating.
+    /// @return True if in calibration mode, false otherwise.
+    bool isExoCalibrating();
+
+    // -----------------------------------------------------------
+    // Mode functions
+    // -----------------------------------------------------------
+
+    /// @brief Assign pin for mode switch interrupt.
+    /// @param pin Interrupt pin.
+    void setModeSwitchButton(int pin);
+
+    /// @brief Define the operationg mode for exo.
+    /// @param name Operating mode ("GESTURE_FIXED", GESTURE_CONTINUOUS", "FREE")
+    void setExoOperatingMode(const String& name);
+
+    /// @brief Get the current operating mode for exo.
+    /// @return The current operating mode as a string.
+    String getExoOperatingMode();
+
+    /// @brief Get the current operating mode as an enum.
+    /// @return The current operating mode as an ExoOperatingMode enum.
+    ExoOperatingMode getExoOperatingModeEnum();
+
+    /// @brief Check if the mode switch button was pressed.
+    bool checkModeSwitchButtonPressed();
+
+    /// @brief Update the exo state, including checking for button pressed, mode switching, and internal routines
+    void update();
+
+    /// @brief Cycle through the exo operating modes.
+    void cycleExoOperatingMode();
+
+
 
     // -----------------------------------------------------------
     // Position commands
@@ -249,8 +319,27 @@ class NMLHandExo {
     /// @param state True for on, false for off.
     void setAllMotorLED(bool state);
 
+    /// @brief Set the current control mode of a motor.
+    /// @param id Motor ID.
+    /// @param mode Control mode as a string (e.g. "POSITION", "CURRENT_POSITION", "VELOCITY").
+    void setMotorControlMode(uint8_t id, const String& mode);
+
+    /// @brief Get the current control mode of a motor.
+    /// @param id Motor ID.
+    /// @return Control mode as a string.
+    String getMotorControlMode(uint8_t id);
+
+    /// @brief Set the control mode for all motors.
+    /// @param mode Control mode as a string (e.g. "POSITION", "CURRENT_POSITION", "VELOCITY").
+    void setMotorMode(const String& mode);
+
+    /// @brief Get the current control mode of all motors.
+    /// @return Control mode as a string.
+    String getMotorMode();
+
+
     /// @brief Current software version.
-    static constexpr const char* VERSION = "1.2.3";
+    static constexpr const char* VERSION = "0.2.5";
 
   private:
     /// @brief Dynamixel2Arduino object for motor communication.
@@ -270,6 +359,41 @@ class NMLHandExo {
 
     /// @brief Array of current limits for each motor
     uint16_t* currentLimits_;
+
+    /// @brief Mode switch pin
+    int modeSwitchPin = -1;
+
+    /// @brief Mode switch flag for interrupt callback
+    static volatile bool modeSwitchFlag;
+
+    /// @brief Last interrupt time for mode switch button
+    bool lastButtonState = false; // Last state of the mode switch button
+
+    /// @brief Current state of the mode switch button
+    int buttonState = HIGH;
+
+    /// @brief Last debounce time for mode switch button
+    unsigned long lastDebounceTime = 0;
+
+    /// @brief Debounce delay for mode switch button
+    const unsigned long debounceDelay = 50;  // 50 ms debounce
+
+    /// @brief Operating mode of motors.
+    String motorControlMode_;            
+
+    /// @brief Operating mode of exo
+    ExoOperatingMode exoMode_ = FREE; // Default mode is free
+
+    /// brief Flag to indicate if the exoskeleton is currently calibrating.
+    bool isCalibrating = false;
+
+    // @brief Flag for calibration timed mode
+    bool calibrationTimedMode = false;
+
+    unsigned long calibrationStartTime;
+
+    unsigned long calibrationDuration;
+
 };
 
 #endif
