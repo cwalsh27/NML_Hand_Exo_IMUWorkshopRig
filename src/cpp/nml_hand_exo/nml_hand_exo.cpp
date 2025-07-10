@@ -85,7 +85,7 @@ void onModeButtonPress() {
 }
 
 NMLHandExo::NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointLimits[][2], const float* homeState)
-  : dxl_(DXL_SERIAL, DXL_DIR_PIN), ids_(ids), numMotors_(numMotors) //jointLimits_(jointLimits),
+  : dxl_(DXL_SERIAL, DXL_DIR_PIN), motorIds_(ids), numMotors_(numMotors) //jointLimits_(jointLimits),
 {
 
   // Allocate and copy joint limits
@@ -128,7 +128,7 @@ void NMLHandExo::initializeSerial(int baud) {
 }
 void NMLHandExo::initializeMotors() {
   for (int i = 0; i < numMotors_; i++) {
-    uint8_t id = ids_[i];
+    uint8_t id = motorIds_[i];
     dxl_.torqueOff(id);
 
     // Set Operating Mode to Current-Based Position Control
@@ -156,9 +156,12 @@ int NMLHandExo::getMotorID(const String& token) {
   }
   return getMotorIDByName(target);  // Otherwise, try name lookup
 }
+uint8_t NMLHandExo::getMotorIDByIndex(const int index) {
+  return motorIds_[index];
+}
 int NMLHandExo::getIndexById(uint8_t id) {
   for (int i = 0; i < numMotors_; i++) {
-    if (ids_[i] == id) return i;
+    if (motorIds_[i] == id) return i;
   }
   return -1;
 }
@@ -173,18 +176,19 @@ int NMLHandExo::getMotorIDByName(const String& name) {
   if (n == "PINKY") return 6;
   return -1;
 }
-String NMLHandExo::getNameByMotorID(uint8_t id) {
-  String name;
-  switch (id) {
-      case 1: name = "wrist"; break;
-      case 2: name = "thumb"; break;
-      case 3: name = "index"; break;
-      case 4: name = "middle"; break;
-      case 5: name = "ring"; break;
-      case 6: name = "pinky"; break;
-      default: name = "unknown"; break;
+//const char* getMotorName(int index) {
+//    return motorNames_[index];  // assuming motorNames_ is stored
+//}
+void NMLHandExo::setMotorNames(const char* const* names) {
+  motorNames_ = names;
+}
+String NMLHandExo::getMotorNameByID(uint8_t id) {
+  for (int i = 0; i < numMotors_; ++i) {
+    if (motorIds_[i] == id) {
+      return motorNames_ ? String(motorNames_[i]) : "unnamed";
+    }
   }
-  return name;
+  return "unknown";
 }
 int NMLHandExo::angleToTicks(float angle_deg, int index) {
   // Map degrees to ticks: assume full range = 4096 ticks = 360 deg
@@ -211,7 +215,7 @@ float NMLHandExo::getZeroOffset(uint8_t id) {
 }
 void NMLHandExo::resetAllZeros() {
   for (int i = 0; i < numMotors_; ++i) {
-    uint8_t id = ids_[i];
+    uint8_t id = motorIds_[i];
     float current_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
     zeroOffsets_[i] = current_angle;
     debugPrint("[DEBUG] Zero offset set for motor " + String(id) + ": " + String(current_angle, 2) + " deg");
@@ -224,15 +228,15 @@ void NMLHandExo::printDeviceInfo(Stream& out) {
   out.println(numMotors_);
 
   for (int i = 0; i < numMotors_; ++i) {
-    const char* name = getNameByMotorID(ids_[i]).c_str();
-    float angle = getRelativeAngle(ids_[i]);
+    const char* name = getMotorNameByID(motorIds_[i]).c_str();
+    float angle = getRelativeAngle(motorIds_[i]);
     float minLimit = jointLimits_[i][0];
     float maxLimit = jointLimits_[i][1];
-    float torque = getTorque(ids_[i]);
+    float torque = getTorque(motorIds_[i]);
 
     // TO-DO: USe this method when it works
     //char buf[128];
-    //snprintf(buf, sizeof(buf), "motor_%d:{name:%s,id:%d,angle:%.2f,limits[%.2f,%.2f],torque:%.2f}", i, name, ids_[i], angle, minLimit, maxLimit, torque);
+    //snprintf(buf, sizeof(buf), "motor_%d:{name:%s,id:%d,angle:%.2f,limits[%.2f,%.2f],torque:%.2f}", i, name, motorIds_[i], angle, minLimit, maxLimit, torque);
     //out.println(buf);
 
     out.print("motor_");
@@ -240,7 +244,7 @@ void NMLHandExo::printDeviceInfo(Stream& out) {
     out.print(":{name:");
     out.print(name);
     out.print(",id:");
-    out.print(ids_[i]);
+    out.print(motorIds_[i]);
     out.print(",angle:");
     out.print(angle, 2);
     out.print(",limits:[");
@@ -323,13 +327,14 @@ void NMLHandExo::update() {
     if (checkModeSwitchButtonPressed()) {
         debugPrint("Mode switch button pressed");
         String exo_mode = getExoOperatingMode();
-        if (exo_mode == "GESTURE_FIXED" || exo_mode == "GESTURE_CONTINUOUS") {
-            // === Button was pressed ===
-            debugPrint(F("[HandExo] Button press detected, cycling exo mode."));
-            //cycleExoOperatingMode();
-        } else {
-            debugPrint(F("[HandExo] Button press detected, but exo is in FREE mode. No action taken."));
-        }
+        cycleExoOperatingMode();
+        // if (exo_mode == "GESTURE_FIXED" || exo_mode == "GESTURE_CONTINUOUS") {
+        //     // === Button was pressed ===
+        //     debugPrint(F("[HandExo] Button press detected, cycling exo mode."));
+        //     cycleExoOperatingMode();
+        // } else {
+        //     debugPrint(F("[HandExo] Button press detected, but exo is in FREE mode. No action taken."));
+        // }
     }
 }
 void NMLHandExo::setModeSwitchButton(int pin) {
@@ -377,7 +382,7 @@ String NMLHandExo::getExoOperatingMode() {
   }
 }
 bool NMLHandExo::checkModeSwitchButtonPressed() {
-  if (modeSwitchPin == -1) return;
+  if (modeSwitchPin == -1) return false;
   int reading = digitalRead(modeSwitchPin);
   if (reading != lastButtonState) {
     lastDebounceTime = millis();
@@ -388,8 +393,6 @@ bool NMLHandExo::checkModeSwitchButtonPressed() {
       buttonState = reading;
       if (buttonState == LOW) {
         // === Button was pressed ===
-        //debugPrint(F("Button press detected, cycling exo mode."));
-        //cycleExoOperatingMode();
         return true;
       }
     }
@@ -422,7 +425,8 @@ float NMLHandExo::getRelativeAngle(uint8_t id) {
   if (index == -1) return -1;
 
   float abs_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
-  return abs_angle - zeroOffsets_[index];
+  float rel_angle = abs_angle - zeroOffsets_[index];
+  return rel_angle;
 }
 void NMLHandExo::setRelativeAngle(uint8_t id, float relativeAngle) {
   int index = getIndexById(id);
@@ -451,7 +455,6 @@ float NMLHandExo::getAbsoluteAngle(uint8_t id) {
     debugPrint("Invalid motor ID: " + String(id));
     return -1;
   }
-
   return dxl_.getPresentPosition(id, UNIT_DEGREE);
 }
 void NMLHandExo::setAbsoluteAngle(uint8_t id, float absoluteAngle) {
@@ -461,10 +464,10 @@ void NMLHandExo::setAbsoluteAngle(uint8_t id, float absoluteAngle) {
     return;
   }
   dxl_.setGoalPosition(id, absoluteAngle, UNIT_DEGREE);
-  char buffer[64];
-  snprintf(buffer, sizeof(buffer), "Setting motor %d to absolute angle %.2f", id, absoluteAngle);
-  debugPrint(buffer);
-  //debugPrint("Setting motor " + String(id) + " to absolute angle " + String(absoluteAngle, 2));
+  //char buffer[64];
+  //snprintf(buffer, sizeof(buffer), "Setting motor %d to absolute angle %.2f", id, absoluteAngle);
+  //debugPrint(buffer);
+  debugPrint("Setting motor " + String(id) + " to absolute angle " + String(absoluteAngle, 2));
 }
 float NMLHandExo::getZeroAngle(uint8_t id){
   int index = getIndexById(id);
@@ -491,7 +494,7 @@ void NMLHandExo::setHome(uint8_t id){
 }
 void NMLHandExo::homeAllMotors() {
   for (int i = 0; i < numMotors_; ++i) {
-    uint8_t id = ids_[i];
+    uint8_t id = motorIds_[i];
     setHome(id);
   }
 }
@@ -685,7 +688,7 @@ void NMLHandExo::setMotorLED(uint8_t id, bool state) {
 void NMLHandExo::setAllMotorLED(bool state) {
   // Sets the state of all motor LEDs to the specified state
   for (int i = 0; i < numMotors_; i++) {
-    uint8_t id = ids_[i];
+    uint8_t id = motorIds_[i];
     setMotorLED(id, state);
   }
 }
@@ -706,18 +709,11 @@ void NMLHandExo::setMotorControlMode(uint8_t id, const String& mode){
     debugPrint("[ERROR] Unknown operating mode: " + m);
   }
 }
-String NMLHandExo::getMotorControlMode(uint8_t id) {
-  String mode = "UNKNOWN";
-  if (numMotors_ > 0) {
-    mode = motorControlMode_; // return the internally tracked mode
-  }
-  return mode;
-}
 void NMLHandExo::setMotorControlMode(const String& mode) {
   String m = mode;
   m.toUpperCase();
   for (int i = 0; i < numMotors_; i++) {
-    uint8_t id = ids_[i];
+    uint8_t id = motorIds_[i];
     dxl_.torqueOff(id); // Turn off torque before changing mode
     NMLHandExo::setMotorControlMode(id, m); // Set the mode for each motor
   }

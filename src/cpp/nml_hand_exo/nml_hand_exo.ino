@@ -26,21 +26,25 @@ SOFTWARE.
 #include "utils.h"
 #include "nml_hand_exo.h"
 #include "gesture_controller.h"
+#include <Wire.h>
+#include <ISM330DLCSensor.h>
 
+// Create IMU device (The "ISM330DLC" library can e downloaded from Arduino's Library Manager)
+//TwoWire dev_i2c(I2C_SDA, I2C_SCL);  // (OLD METHOD) SDA and SCL should be defined in config.h
+//ISM330DLCSensor imu(&dev_i2c);      // (OLD METHOD) Create the IMU object
+ISM330DLCSensor imu(&Wire);      // Create the IMU object
+
+// TO-DO: Move these to config.h or nml_hand_exo.h
 #define DEBUG_SERIAL Serial
 #define BLE_SERIAL Serial2
 
-uint8_t ids[] = { WRIST_ID, RING_ID, PINKY_ID, INDEX_ID, MIDDLE_ID, THUMB_ID };
-uint8_t n_motors = sizeof(ids)/sizeof(ids[0]);
-
 // Create the exo device with the motor parameters and id values
-NMLHandExo exo(ids, n_motors, jointLimits, homeStates);
+NMLHandExo exo(MOTOR_IDS, N_MOTORS, jointLimits, HOME_STATES);
 GestureController gc(exo);  // pass exo reference
 
 void setup() {
 
   // LEDs for command/connection feedback
-  //pinMode(LED_BUILTIN, OUTPUT);
   pinMode(STATUS_LED_PIN, OUTPUT);
   digitalWrite(STATUS_LED_PIN, LOW);  // initially off
 
@@ -49,11 +53,22 @@ void setup() {
   while (!DEBUG_SERIAL);
   BLE_SERIAL.begin(BLE_BAUD_RATE);     // (Optional) Establish port with TX/RX pins for incomming serial data/commands
 
+  // Setup IMU
+  //dev_i2c.begin();
+  Wire.begin();
+  imu.begin();
+  imu.Enable_X();  // Enable accelerometer
+  imu.Enable_G();  // Enable gyroscope
+
   // Setup exo
   exo.initializeSerial(DYNAMIXEL_BAUD_RATE);
   exo.initializeMotors();       // Initialize motors and set them to "current position" mode
   // exo.resetAllZeros();       // (Optional) Defines the current position of the motors as the home position
+  exo.setMotorNames(MOTOR_NAMES);
   exo.setModeSwitchButton(MODESWITCH_PIN);
+
+  // Default state is button control
+  exo.setExoOperatingMode(DEFAULT_EXO_MODE);
 
   // Setup gesture controller
   gc.setCycleGestureButton(CYCLE_GESTURE_PIN);
@@ -72,7 +87,7 @@ void loop() {
     String input = DEBUG_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
-    parseMessage(exo, gc, input);
+    parseMessage(exo, gc, imu, input);
   }
 
   // Handle data from the BLE/command connection
@@ -81,7 +96,7 @@ void loop() {
     String input = BLE_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
-    parseMessage(exo, gc, input);
+    parseMessage(exo, gc, imu, input);
   }
 
   // Update the exo state, including checking for button pressed, mode switching, and internal routines

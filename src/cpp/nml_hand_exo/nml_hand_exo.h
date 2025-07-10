@@ -63,6 +63,10 @@ class NMLHandExo {
     /// @brief Initialize all motors: disables torque, sets position mode, then re-enables torque.
     void initializeMotors();
 
+    /// @brief Gets the motor ID according to the passed index
+    /// @param index Index of array
+    uint8_t getMotorIDByIndex(const int index);
+
     /// @brief Get the current operating mode of the motors
     /// @return The motor control mode.
     String getMotorControlMode();
@@ -86,10 +90,18 @@ class NMLHandExo {
     /// @return The motor ID or -1 if not found.
     int getMotorIDByName(const String& name);
 
+    // @brief Get the name of the motor by index
+    // @param index Index of array
+    //const char* getMotorName(int index);
+
+    /// @brief Set the unique names for motors (Must match the number of IDs)
+    /// @param names A list of "names" separated by comma.
+    void setMotorNames(const char* const* names);
+
     /// @brief Get the motor name from its ID.
     /// @param id The motor ID.
     /// @return The name of the motor.
-    String getNameByMotorID(uint8_t id);
+    String getMotorNameByID(uint8_t id);
 
     /// @brief Convert a relative angle (degrees) to Dynamixel tick counts.
     /// @param angle_deg Angle in degrees.
@@ -142,8 +154,8 @@ class NMLHandExo {
     /// @param pin Interrupt pin.
     void setModeSwitchButton(int pin);
 
-    /// @brief Define the operationg mode for exo.
-    /// @param name Operating mode ("GESTURE_FIXED", GESTURE_CONTINUOUS", "FREE")
+    /// @brief Define the operating mode for exo.
+    /// @param name Operating mode ("GESTURE_FIXED", "GESTURE_CONTINUOUS", "FREE")
     void setExoOperatingMode(const String& name);
 
     /// @brief Get the current operating mode for exo.
@@ -248,6 +260,9 @@ class NMLHandExo {
     /// @return Raw current value.
     int16_t getCurrent(uint8_t id);
 
+    /// @brief Set the current limit for a motor.
+    /// @param id Motor ID.
+    /// @param current_mA Current limit in milliamps.
     void setCurrentLimit(uint8_t id, uint16_t current_mA);
 
     /// @brief Set the calculated torque in N·m for a motor.
@@ -337,19 +352,21 @@ class NMLHandExo {
     /// @return Control mode as a string.
     String getMotorMode();
 
-
     /// @brief Current software version.
-    static constexpr const char* VERSION = "0.2.5";
+    static constexpr const char* VERSION = "0.2.6";
 
   private:
     /// @brief Dynamixel2Arduino object for motor communication.
     Dynamixel2Arduino dxl_;              // Handle to Dynamixel object
 
     /// @brief Pointer to array of motor IDs.
-    const uint8_t* ids_;                 // List of motor IDs passed by the user
+    const uint8_t* motorIds_;                 // List of motor IDs passed by the user
+
+    /// @brief Pointer to array of motor names.
+    const char* const* motorNames_;
 
     /// @brief Number of motors configured.
-    uint8_t numMotors_;                  // Number of motors being used, should be detected by the length of motor ids passed
+    uint8_t numMotors_ = 0;                  // Number of motors being used, should be detected by the length of motor ids passed
 
     /// @brief Pointer to 2D array of joint limits [min, max] for each motor.
     float (*jointLimits_)[2];      // Pointer to 2D array of joint limits
@@ -390,10 +407,12 @@ class NMLHandExo {
     // @brief Flag for calibration timed mode
     bool calibrationTimedMode = false;
 
+    /// @brief Start time for calibration.
     unsigned long calibrationStartTime;
 
+    /// @brief Duration for calibration in milliseconds.
     unsigned long calibrationDuration;
 
 };
 
-#endif
+#endif // NML_HAND_EXO_H

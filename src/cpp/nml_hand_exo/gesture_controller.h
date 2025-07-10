@@ -4,7 +4,6 @@
 #include "Arduino.h"
 #include "nml_hand_exo.h"
 #include "gesture_library.h"
-//#include <vector>
 
 
 /// @brief Class to manage predefined gestures and apply them to the NMLHandExo device.
@@ -50,12 +49,15 @@ public:
     /// @return Current gesture name
     String getCurrentGesture();
 
+    /// @brief Update the gesture controller state, including checking for button presses.
     void update();
 
 
 private:
+    /// @brief Apply the gesture to the exoskeleton
     NMLHandExo& exo_;
 
+    /// @brief Pointer to the gesture library
     int numGestures_;  // Number of gestures in the library
 
     /// @brief Current gesture being executed
@@ -67,7 +69,7 @@ private:
     /// @brief Mode switch pin
     int gestureStateSwitchPin = -1;
 
-    /// @brief Mode switch flag for interrupt callback
+    /// @brief Mode switch flag triggered by the mode switch interrupt callback
     static volatile bool gestureStateSwitchFlag;
 
     /// @brief Last interrupt time for mode switch button

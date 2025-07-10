@@ -31,9 +31,12 @@ void GestureController::executeGesture(const String& gesture, const String& stat
   }
 
   float* angles = gestureLibrary[gIdx].states[sIdx].jointAngles;
-  for (int i = 0; i < NUM_JOINTS; ++i) {
-    exo_.setAngleById(i, angles[i]);  // Adjust index as needed for motor IDs
+  for (int i = 0; i < exo_.getMotorCount(); i++) {
+    uint8_t id = exo_.getMotorIDByIndex(i);  // ID from index
+    exo_.setAbsoluteAngle(id, angles[i]);
+    debugPrint("Setting motor " + String(id) + " to angle " + String(angles[i], 2) + " deg");
   }
+
   currentGesture_ = gesture;
   currentGestureState_ = state;
   debugPrint("[GestureController] Executed gesture: " + gesture + ", state: " + state);
@@ -62,7 +65,7 @@ void GestureController::setGestureStateSwitchButton(const int pin) {
 }
 
 bool GestureController::checkGestureStateButtonPressed() {
-  if (gestureStateSwitchPin == -1) return;
+  if (gestureStateSwitchPin == -1) return false;
   int reading = digitalRead(gestureStateSwitchPin);
   if (reading != lastGestureStateButtonState) {
     lastGestureStateDebounceTime = millis();
@@ -82,7 +85,7 @@ bool GestureController::checkGestureStateButtonPressed() {
 }
 
 bool GestureController::checkCycleGestureButtonPressed() {
-    if (cycleGesturePin == -1) return;
+    if (cycleGesturePin == -1) return false;
     int reading = digitalRead(cycleGesturePin);
     if (reading != lastCycleGestureButtonState) {
         lastCycleGestureDebounceTime = millis();
