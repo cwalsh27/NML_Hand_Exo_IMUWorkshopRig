@@ -114,6 +114,69 @@ class HandExo(object):
             print(f"[ERROR] Failed to read response: {e}")
         return ""
 
+    def enable_motor(self, motor_id: (int or str)):
+        """
+        Enables the torque output for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to enable.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"enable:{motor_id}")
+
+    def disable_motor(self, motor_id: (int or str)):
+        """
+        Disables the torque output for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to disable.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"disable:{motor_id}")
+
+    def enable_led(self, motor_id: (int or str)):
+        """
+        Enables the LED for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to enable the LED for.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"led:{motor_id}:on")
+
+    def disable_led(self, motor_id: (int or str)):
+        """
+        Disables the LED for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to disable the LED for.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"led:{motor_id}:off")
+
+    def help(self) -> str:
+        """
+        Sends a help command to the exoskeleton to retrieve available commands.
+
+        Returns:
+            str: A string containing the help information from the exoskeleton.
+
+        """
+        self.send_command("help")
+        return self._receive()
+
     def home(self, motor_id: (int or str)):
         """
         Sends a home command to all motors, unless a specific motor ID is provided.
@@ -159,31 +222,85 @@ class HandExo(object):
             except Exception as e:
                 print(f"[ERROR] Failed to parse info: {e}")
 
-    def enable_motor(self, motor_id: (int or str)):
+    def get_baudrate(self) -> int:
         """
-        Enables the torque output for the specified motor.
+        Retrieves the current baud rate of the serial connection.
+
+        Returns:
+            int: The current baud rate.
+
+        """
+        if self.device and self.device.is_open:
+            return self.device.baudrate
+        else:
+            print("[ERROR] Serial device is not connected.")
+            return None
+
+    def get_motor_velocity(self, motor_id: (int or str)) -> float:
+        """
+        Retrieves the current velocity of the specified motor.
 
         Args:
-            motor_id (int or str): ID of the motor to enable.
+            motor_id (int or str): ID of the motor to query.
+
+        Returns:
+            float: Current velocity of the motor in degrees per second.
+
+        """
+        self.send_command(f"get_vel:{motor_id}")
+        response = self._receive()
+        try:
+            return float(response.split(':')[-1])
+        except (ValueError, IndexError):
+            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
+            return 0.0
+
+    def set_motor_velocity(self, motor_id: (int or str), velocity: float):
+        """
+        Sets the velocity for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to set the velocity for.
+            velocity (float): Desired velocity in degrees per second.
 
         Returns:
             None
 
         """
-        self.send_command(f"enable:{motor_id}")
+        self.send_command(f"set_vel:{motor_id}:{velocity}")
 
-    def disable_motor(self, motor_id: (int or str)):
+    def get_motor_acceleration(self, motor_id: (int or str)) -> float:
         """
-        Disables the torque output for the specified motor.
+        Retrieves the current acceleration of the specified motor.
 
         Args:
-            motor_id (int or str): ID of the motor to disable.
+            motor_id (int or str): ID of the motor to query.
+
+        Returns:
+            float: Current acceleration of the motor in degrees per second squared.
+
+        """
+        self.send_command(f"get_accel:{motor_id}")
+        response = self._receive()
+        try:
+            return float(response.split(':')[-1])
+        except (ValueError, IndexError):
+            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
+            return 0.0
+
+    def set_motor_acceleration(self, motor_id: (int or str), acceleration: float):
+        """
+        Sets the acceleration for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to set the acceleration for.
+            acceleration (float): Desired acceleration in degrees per second squared.
 
         Returns:
             None
 
         """
-        self.send_command(f"disable:{motor_id}")
+        self.send_command(f"set_accel:{motor_id}:{acceleration}")
 
     def get_motor_angle(self, motor_id: (int or str)) -> float:
         """
@@ -259,18 +376,18 @@ class HandExo(object):
             cmd = f"set_absangle:{int(motor_id)}:{angle}"
         self.send_command(cmd)
 
-    def get_motor_velocity(self, motor_id: (int or str)) -> float:
+    def get_home(self, motor_id: (int or str)) -> float:
         """
-        Retrieves the current velocity of the specified motor.
+        Retrieves the home angle of the specified motor.
 
         Args:
             motor_id (int or str): ID of the motor to query.
 
         Returns:
-            float: Current velocity of the motor in degrees per second.
+            float: Home angle of the motor in degrees.
 
         """
-        self.send_command(f"get_vel:{motor_id}")
+        self.send_command(f"get_home:{motor_id}")
         response = self._receive()
         try:
             return float(response.split(':')[-1])
@@ -278,52 +395,19 @@ class HandExo(object):
             print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
             return 0.0
 
-    def set_motor_velocity(self, motor_id: (int or str), velocity: float):
+    def set_home(self, motor_id: (int or str), home_angle: float):
         """
-        Sets the velocity for the specified motor.
+        Sets the home angle for the specified motor.
 
         Args:
-            motor_id (int or str): ID of the motor to set the velocity for.
-            velocity (float): Desired velocity in degrees per second.
+            motor_id (int or str): ID of the motor to set the home angle for.
+            home_angle (float): Desired home angle in degrees.
 
         Returns:
             None
 
         """
-        self.send_command(f"set_vel:{motor_id}:{velocity}")
-
-    def get_motor_acceleration(self, motor_id: (int or str)) -> float:
-        """
-        Retrieves the current acceleration of the specified motor.
-
-        Args:
-            motor_id (int or str): ID of the motor to query.
-
-        Returns:
-            float: Current acceleration of the motor in degrees per second squared.
-
-        """
-        self.send_command(f"get_accel:{motor_id}")
-        response = self._receive()
-        try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
-
-    def set_motor_acceleration(self, motor_id: (int or str), acceleration: float):
-        """
-        Sets the acceleration for the specified motor.
-
-        Args:
-            motor_id (int or str): ID of the motor to set the acceleration for.
-            acceleration (float): Desired acceleration in degrees per second squared.
-
-        Returns:
-            None
-
-        """
-        self.send_command(f"set_accel:{motor_id}:{acceleration}")
+        self.send_command(f"set_home:{motor_id}:{home_angle}")
 
     def get_motor_torque(self, motor_id: (int or str)) -> float:
         """
@@ -362,6 +446,39 @@ class HandExo(object):
         except (ValueError, IndexError):
             print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
             return 0.0
+
+    def get_motor_current_limit(self, motor_id: (int or str)) -> float:
+        """
+        Retrieves the current limit of the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to query.
+
+        Returns:
+            float: Current limit of the motor in Amperes.
+
+        """
+        self.send_command(f"get_current_lim:{motor_id}")
+        response = self._receive()
+        try:
+            return float(response.split(':')[-1])
+        except (ValueError, IndexError):
+            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
+            return 0.0
+
+    def set_current_limit(self, motor_id: (int or str), current_limit: float):
+        """
+        Sets the current limit for the specified motor.
+
+        Args:
+            motor_id (int or str): ID of the motor to set the current limit for.
+            current_limit (float): Desired current limit in Amperes.
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"set_current_lim:{motor_id}:{current_limit}")
 
     def get_motor_status(self, motor_id: (int or str)) -> dict:
         """
@@ -456,7 +573,7 @@ class HandExo(object):
             None
 
         """
-        self.send_command(f"set_limits:{motor_id}:{lower_limit}:{upper_limit}")
+        self.send_command(f"set_motor_limits:{motor_id}:{lower_limit}:{upper_limit}")
 
     def reboot_motor(self, motor_id: (int or str)):
         """
@@ -469,44 +586,138 @@ class HandExo(object):
             None
 
         """
-        self.send_command(f"reboot:{motor_id}")
+        if motor_id == 'all':
+            self.send_command("reboot:all")
+        else:
+            self.send_command(f"reboot:{motor_id}")
 
-    def enable_led(self, motor_id: (int or str)):
+    def get_motor_mode(self) -> str:
         """
-        Enables the LED for the specified motor.
+        Retrieves the current control mode of the specified motor.
+
+        Returns:
+            str: Current mode of the motor (e.g., "position", "velocity", "current_position").
+
+        """
+        self.send_command(f"get_motor_mode")
+        response = self._receive()
+        if response:
+            try:
+                return response.split(':')[-1].strip()
+            except IndexError:
+                print(f"[ERROR] Invalid response")
+        return ""
+
+    def set_motor_mode(self, motor_id: (int or str), mode: str):
+        """
+        Sets the control mode for the specified motor.
 
         Args:
-            motor_id (int or str): ID of the motor to enable the LED for.
+            motor_id (int or str): ID of the motor to set the mode for.
+            mode (str): Desired control mode (e.g., "position", "velocity", "current_position").
 
         Returns:
             None
 
         """
-        self.send_command(f"led:{motor_id}:on")
+        self.send_command(f"set_motor_mode:{motor_id}:{mode}")
 
-    def disable_led(self, motor_id: (int or str)):
+    def get_exo_mode(self) -> str:
         """
-        Disables the LED for the specified motor.
+        Retrieves the current operating mode of the exoskeleton.
+
+        Returns:
+            str: Current mode of the exoskeleton (e.g., "manual", "autonomous").
+
+        """
+        self.send_command("get_exo_mode")
+        response = self._receive()
+        if response:
+            try:
+                return response.split(':')[-1].strip()
+            except IndexError:
+                print(f"[ERROR] Invalid response")
+        return ""
+
+    def set_exo_mode(self, mode: str):
+        """
+        Sets the operating mode for the exoskeleton.
 
         Args:
-            motor_id (int or str): ID of the motor to disable the LED for.
+            mode (str): Desired operating mode (e.g., "manual", "autonomous").
 
         Returns:
             None
 
         """
-        self.send_command(f"led:{motor_id}:off")
+        self.send_command(f"set_exo_mode:{mode}")
 
-    def help(self) -> str:
+    def get_gesture(self) -> str:
         """
-        Sends a help command to the exoskeleton to retrieve available commands.
+        Retrieves the current gesture recognized by the exoskeleton.
 
         Returns:
-            str: A string containing the help information from the exoskeleton.
+            str: Current gesture (e.g., "open", "close", "pinch").
 
         """
-        self.send_command("help")
-        return self._receive()
+        self.send_command("get_gesture")
+        response = self._receive()
+        if response:
+            try:
+                return response.split(':')[-1].strip()
+            except IndexError:
+                print(f"[ERROR] Invalid response")
+        return ""
+
+    def set_gesture(self, gesture: str, state: str = "default"):
+        """
+        Sets the gesture for the exoskeleton.
+
+        Args:
+            gesture (str): Desired gesture (e.g., "open", "close", "pinch").
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"set_gesture:{gesture}:{state}")
+
+    def get_gesture_list(self) -> list:
+        """
+        Retrieves the list of available gestures for the exoskeleton.
+
+        Returns:
+            list: A list of available gestures.
+
+        """
+        self.send_command("gesture_list")
+        response = self._receive()
+        if response:
+            try:
+                return response.split(':')[-1].strip().split(',')
+            except IndexError:
+                print(f"[ERROR] Invalid response")
+        return []
+
+    def cycle_gesture(self):
+        """
+        Cycles through the available gestures for the exoskeleton.
+
+        Returns:
+            None
+
+        """
+        self.send_command("cycle_gesture")
+
+    def cycle_gesture_state(self):
+        """
+        Cycles through the states of the current gesture for the exoskeleton.
+
+        Returns:
+            None
+
+        """
+        self.send_command("cycle_gesture_state")
 
     def close(self):
         """
