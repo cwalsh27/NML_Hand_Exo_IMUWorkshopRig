@@ -26,13 +26,13 @@ SOFTWARE.
 #include "utils.h"
 #include "nml_hand_exo.h"
 #include "gesture_controller.h"
-#include <Wire.h>
-#include <ISM330DLCSensor.h>
+//#include <Wire.h>
+//#include <ISM330DLCSensor.h>
 
-// Create IMU device (The "ISM330DLC" library can e downloaded from Arduino's Library Manager)
-//TwoWire dev_i2c(I2C_SDA, I2C_SCL);  // (OLD METHOD) SDA and SCL should be defined in config.h
-//ISM330DLCSensor imu(&dev_i2c);      // (OLD METHOD) Create the IMU object
-ISM330DLCSensor imu(&Wire);      // Create the IMU object
+#include <Adafruit_ISM330DHCX.h>
+
+// Create IMU device (The "ISM330DLC" library can be downloaded from Arduino's Library Manager)
+Adafruit_ISM330DHCX ism330dhcx;
 
 // TO-DO: Move these to config.h or nml_hand_exo.h
 #define DEBUG_SERIAL Serial
@@ -54,11 +54,7 @@ void setup() {
   BLE_SERIAL.begin(BLE_BAUD_RATE);     // (Optional) Establish port with TX/RX pins for incomming serial data/commands
 
   // Setup IMU
-  //dev_i2c.begin();
-  Wire.begin();
-  imu.begin();
-  imu.Enable_X();  // Enable accelerometer
-  imu.Enable_G();  // Enable gyroscope
+  initializeIMU(ism330dhcx);
 
   // Setup exo
   exo.initializeSerial(DYNAMIXEL_BAUD_RATE);
@@ -87,7 +83,7 @@ void loop() {
     String input = DEBUG_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
-    parseMessage(exo, gc, imu, input);
+    parseMessage(exo, gc, ism330dhcx, input);
   }
 
   // Handle data from the BLE/command connection
@@ -96,7 +92,7 @@ void loop() {
     String input = BLE_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
-    parseMessage(exo, gc, imu, input);
+    parseMessage(exo, gc, ism330dhcx, input);
   }
 
   // Update the exo state, including checking for button pressed, mode switching, and internal routines

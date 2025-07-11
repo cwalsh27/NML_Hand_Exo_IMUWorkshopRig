@@ -19,7 +19,7 @@
 constexpr char* DEFAULT_EXO_MODE = "gesture_fixed"; // Available modes are "free", "gesture_fixed", and "gesture_continuous"
 
 /// @brief Verbose output toggle for debugging.
-constexpr bool DEFAULT_VERBOSE = true;
+constexpr bool DEFAULT_VERBOSE = false;
 
 // Define servo IDs
 constexpr uint8_t WRIST_ID  = 0;
@@ -30,19 +30,15 @@ constexpr uint8_t MIDDLE_ID = 3; // 4
 constexpr uint8_t THUMB_ID  = 1; // 5
 
 // Pin definitions for mode switching and gesture control
-constexpr int MODESWITCH_PIN = 12;
-constexpr int GESTURE_STATE_PIN = 11;
-constexpr int CYCLE_GESTURE_PIN = 10;
+constexpr int MODESWITCH_PIN = 5;
+constexpr int GESTURE_STATE_PIN = 4;
+constexpr int CYCLE_GESTURE_PIN = 3;
 
 /// @brief Motor ID Array (ordered by internal mapping you use)
 constexpr uint8_t MOTOR_IDS[] = {  WRIST_ID, THUMB_ID, INDEX_ID, MIDDLE_ID, RING_ID, PINKY_ID};
 
 /// @brief Motor name Array (must match the order above)
 constexpr char* MOTOR_NAMES[] = {  "wrist", "thumb", "index", "middle", "ring", "pinky" };
-
-
-//constexpr int I2C_SDA = 21;
-//constexpr int I2C_SCL = 22;
 
 /// @brief Pin definition for the status LED (built-in LED on most boards)
 constexpr int STATUS_LED_PIN = LED_BUILTIN;

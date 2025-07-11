@@ -9,12 +9,16 @@
 #include <Arduino.h>
 #include "nml_hand_exo.h"
 #include "gesture_controller.h"
-#include <ISM330DLCSensor.h>
+#include <Adafruit_ISM330DHCX.h>
 
+
+/// @brief Prints a debug message to the debug serial port (VERBOSE specific)
+/// @param msg The message to print
+void debugPrint(const String& msg);
 
 /// @brief Prints a debug message to the debug serial port
 /// @param msg The message to print
-void debugPrint(const String& msg);
+void commandPrint(const String& msg);
 
 /// @brief Flashes a pin on and off for a specified duration and number of repetitions
 /// @param pin The pin number to flash
@@ -27,7 +31,7 @@ void flashPin(int pin, int durationMs, int repetitions);
 /// @param index The index of the argument to extract (0-based)
 /// @param delimiter The character used to separate arguments in the string (default is ':')
 /// @return The extracted argument as a String
-String getArg(const String line, const int index, char delimiter = ':');
+String getArg(const String line, const int index, char delimiter);
 
 /// @brief Extracts a motor ID from a string based on the index
 /// @param exo The NMLHandExo instance containing motor IDs
@@ -40,6 +44,14 @@ int getArgMotorID(NMLHandExo& exo, const String& line, const int index);
 /// @param exo The NMLHandExo instance to control
 /// @param gc The GestureController instance to control gestures
 /// @param token The input string containing the command to parse
-void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, String token);
+void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& imu, String token);
+
+/// @brief Initializes the IMU device 
+/// @param imu The imu instance
+void initializeIMU(Adafruit_ISM330DHCX& imu);
+
+/// @brief Sends an event request and prints out the data from the IMU
+/// @param imu The imu instance
+void getIMUData(Adafruit_ISM330DHCX& imu); 
 
 #endif

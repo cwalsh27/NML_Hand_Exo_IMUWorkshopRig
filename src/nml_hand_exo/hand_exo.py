@@ -1,3 +1,4 @@
+import numpy as np
 import time
 import serial
 
@@ -730,3 +731,71 @@ class HandExo(object):
         if self.device and self.device.is_open:
             self.device.close()
             self.logger("Serial connection closed.")
+
+    def get_imu_data(self) -> dict:
+        """
+        Retrieves the IMU data from the exoskeleton.
+
+        Receives a serial message with contents, as an example:
+            "Temp: 20.28 C; Accel: [-0.46, -0.42, 9.85]; Gyro: [-0.00, 0.01, -0.00];"
+
+        Returns:
+            dict: A dictionary containing IMU data (e.g., accelerometer, gyroscope, magnetometer).
+
+        """
+        self.send_command("get_imu")
+        response = self._receive()
+        imu_data = {}
+        if response:
+            try:
+                parts = response.split(';')
+                for part in parts:
+                    part = part.strip()
+                    if part.startswith("Temp:"):
+                        imu_data['temperature'] = float(part.split(':')[-1].strip().replace('C', ''))
+                    elif part.startswith("Accel:"):
+                        accel_str = part.split(':')[-1].strip().strip('[]')
+                        imu_data['acceleration'] = list(map(float, accel_str.split(',')))
+                    elif part.startswith("Gyro:"):
+                        gyro_str = part.split(':')[-1].strip().strip('[]')
+                        imu_data['gyroscope'] = list(map(float, gyro_str.split(',')))
+                    # Add more parts as needed (e.g., magnetometer)
+
+                return imu_data
+            except (ValueError, IndexError):
+                print(f"[ERROR] Invalid IMU data response: {response}")
+        return {}
+
+    def get_imu_angles(self, degrees=True, raw=False) -> dict:
+        """
+        Computes the orientation of the exo device based on the imu data received
+
+        Args:
+            degrees (bool): If True, returns roll, pitch, and yaw in degrees. If False, returns in radians.
+            raw (bool): If True, returns raw IMU data instead of computed orientation.
+
+        Returns:
+            dict: A dictionary containing orientation data (e.g., roll, pitch, yaw).
+        """
+        data = self.get_imu_data()
+        if data:
+            if raw:
+                return data
+
+            # compute the roll, pitch, and yaw from the accelerometer and gyroscope data
+            accel = data.get('acceleration', [0, 0, 0])
+            gyro = data.get('gyroscope', [0, 0, 0])
+            roll = np.atan2(accel[1], accel[2])
+            pitch = np.atan2(-accel[0], np.sqrt(accel[1]**2 + accel[2]**2))
+            yaw = np.atan2(gyro[1], gyro[0])
+
+            if degrees:
+                roll = np.degrees(roll)
+                pitch = np.degrees(pitch)
+                yaw = np.degrees(yaw)
+
+            return {
+                'roll': float(roll),
+                'pitch': float(pitch),
+                'yaw': float(yaw)
+            }

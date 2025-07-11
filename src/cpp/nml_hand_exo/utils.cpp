@@ -3,19 +3,175 @@
  * @brief A cpp file for supporting functions
  *
  */
+#include "utils.h"
 #include <Arduino.h>
 #include "nml_hand_exo.h"
 #include "gesture_controller.h"
-#include <ISM330DLCSensor.h>
+
 
 void debugPrint(const String& msg) {
+  // Prints out message to debug serial port if VERBOSE is set to true
+  if (VERBOSE) {
+    #if defined(DEBUG_SERIAL)
+      DEBUG_SERIAL(msg);
+    #else
+      Serial.println(msg);  // fallback
+    #endif
+  }
+}
+
+void commandPrint(const String& msg) {
+  // Prints out message to DEBUG/CMD serial port regardless of VERBOSE mode 
   #if defined(DEBUG_SERIAL)
-    DEBUG_SERIAL.println(msg);
+    DEBUG_SERIAL(msg);
   #else
     Serial.println(msg);  // fallback
   #endif
 }
+void initializeIMU(Adafruit_ISM330DHCX& imu) {
+  if (!imu.begin_I2C()) {
+    // if (!ism330dhcx.begin_SPI(LSM_CS)) {
+    // if (!ism330dhcx.begin_SPI(LSM_CS, LSM_SCK, LSM_MISO, LSM_MOSI)) {
+    debugPrint("Failed to find ISM330DHCX chip");
+  } else {
+    debugPrint("ISM330DHCX Found!");
 
+    // ism330dhcx.setAccelRange(LSM6DS_ACCEL_RANGE_2_G);
+    debugPrint("Accelerometer range set to: ");
+    switch (imu.getAccelRange()) {
+    case LSM6DS_ACCEL_RANGE_2_G:
+      debugPrint("+-2G");
+      break;
+    case LSM6DS_ACCEL_RANGE_4_G:
+      debugPrint("+-4G");
+      break;
+    case LSM6DS_ACCEL_RANGE_8_G:
+      debugPrint("+-8G");
+      break;
+    case LSM6DS_ACCEL_RANGE_16_G:
+      debugPrint("+-16G");
+      break;
+    }
+
+    // ism330dhcx.setGyroRange(LSM6DS_GYRO_RANGE_250_DPS);
+    debugPrint("Gyro range set to: ");
+    switch (imu.getGyroRange()) {
+    case LSM6DS_GYRO_RANGE_125_DPS:
+      debugPrint("125 degrees/s");
+      break;
+    case LSM6DS_GYRO_RANGE_250_DPS:
+      debugPrint("250 degrees/s");
+      break;
+    case LSM6DS_GYRO_RANGE_500_DPS:
+      debugPrint("500 degrees/s");
+      break;
+    case LSM6DS_GYRO_RANGE_1000_DPS:
+      debugPrint("1000 degrees/s");
+      break;
+    case LSM6DS_GYRO_RANGE_2000_DPS:
+      debugPrint("2000 degrees/s");
+      break;
+    case ISM330DHCX_GYRO_RANGE_4000_DPS:
+      debugPrint("4000 degrees/s");
+      break;
+    }
+
+    // ism330dhcx.setAccelDataRate(LSM6DS_RATE_12_5_HZ);
+    debugPrint("Accelerometer data rate set to: ");
+    switch (imu.getAccelDataRate()) {
+    case LSM6DS_RATE_SHUTDOWN:
+      debugPrint("0 Hz");
+      break;
+    case LSM6DS_RATE_12_5_HZ:
+      debugPrint("12.5 Hz");
+      break;
+    case LSM6DS_RATE_26_HZ:
+      debugPrint("26 Hz");
+      break;
+    case LSM6DS_RATE_52_HZ:
+      debugPrint("52 Hz");
+      break;
+    case LSM6DS_RATE_104_HZ:
+      debugPrint("104 Hz");
+      break;
+    case LSM6DS_RATE_208_HZ:
+      debugPrint("208 Hz");
+      break;
+    case LSM6DS_RATE_416_HZ:
+      debugPrint("416 Hz");
+      break;
+    case LSM6DS_RATE_833_HZ:
+      debugPrint("833 Hz");
+      break;
+    case LSM6DS_RATE_1_66K_HZ:
+      debugPrint("1.66 KHz");
+      break;
+    case LSM6DS_RATE_3_33K_HZ:
+      debugPrint("3.33 KHz");
+      break;
+    case LSM6DS_RATE_6_66K_HZ:
+      debugPrint("6.66 KHz");
+      break;
+    }
+
+    // ism330dhcx.setGyroDataRate(LSM6DS_RATE_12_5_HZ);
+    debugPrint("Gyro data rate set to: ");
+    switch (imu.getGyroDataRate()) {
+    case LSM6DS_RATE_SHUTDOWN:
+      debugPrint("0 Hz");
+      break;
+    case LSM6DS_RATE_12_5_HZ:
+      debugPrint("12.5 Hz");
+      break;
+    case LSM6DS_RATE_26_HZ:
+      debugPrint("26 Hz");
+      break;
+    case LSM6DS_RATE_52_HZ:
+      debugPrint("52 Hz");
+      break;
+    case LSM6DS_RATE_104_HZ:
+      debugPrint("104 Hz");
+      break;
+    case LSM6DS_RATE_208_HZ:
+      debugPrint("208 Hz");
+      break;
+    case LSM6DS_RATE_416_HZ:
+      debugPrint("416 Hz");
+      break;
+    case LSM6DS_RATE_833_HZ:
+      debugPrint("833 Hz");
+      break;
+    case LSM6DS_RATE_1_66K_HZ:
+      debugPrint("1.66 KHz");
+      break;
+    case LSM6DS_RATE_3_33K_HZ:
+      debugPrint("3.33 KHz");
+      break;
+    case LSM6DS_RATE_6_66K_HZ:
+      debugPrint("6.66 KHz");
+      break;
+    }
+
+    imu.configInt1(false, false, true); // accelerometer DRDY on INT1
+    imu.configInt2(false, true, false); // gyro DRDY on INT2
+
+  }
+}
+
+void getIMUData(Adafruit_ISM330DHCX& imu) {
+  sensors_event_t accel, gyro, temp;
+  if (!imu.getEvent(&accel, &gyro, &temp)) {
+    debugPrint("IMU read failed");
+    return;
+  }
+  char buffer[128];
+  snprintf(buffer, sizeof(buffer),
+           "Temp:%.2f C; Accel: [%.2f, %.2f, %.2f]; Gyro: [%.2f, %.2f, %.2f];",
+           temp.temperature,
+           accel.acceleration.x, accel.acceleration.y, accel.acceleration.z,
+           gyro.gyro.x, gyro.gyro.y, gyro.gyro.z);
+  commandPrint(buffer);
+}
 
 void flashPin(int pin, int durationMs, int repetitions) {
   for (int i = 0; i < repetitions; ++i) {
@@ -42,7 +198,7 @@ int getArgMotorID(NMLHandExo& exo, const String& line, const int index) {
   return exo.getMotorID(getArg(line, index));
 }
 
-void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, String token) {
+void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& imu, String token) {
 
   token.trim();        // Remove any trailing white space
   token.toLowerCase(); // Set all characters to lowercase
@@ -82,7 +238,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     id = getArgMotorID(exo, token, 1);
     if (id != -1) {
       uint32_t baud = exo.getBaudRate(id);  
-      debugPrint("Motor " + String(id) + " baud: " + String(baud));
+      commandPrint("Motor " + String(id) + " baud: " + String(baud));
     }
   } else if (cmd == "set_baud") {
     id = getArgMotorID(exo, token, 1);
@@ -93,7 +249,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     id = getArgMotorID(exo, token, 1);
     if (id != -1) {
       uint32_t vel = exo.getVelocityLimit(id);
-      debugPrint("Motor " + String(id) + " velocity: " + String(vel));
+      commandPrint("Motor " + String(id) + " velocity: " + String(vel));
     }
 
   } else if (cmd == "set_vel") {
@@ -105,7 +261,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     id = exo.getMotorID(getArg(token, 1));
     if (id != -1) {
       int acc = exo.getAccelerationLimit(id);
-      debugPrint("Motor " + String(id) + " acceleration: " + String(acc));
+      commandPrint("Motor " + String(id) + " acceleration: " + String(acc));
     }
 
   } else if (cmd == "set_acc") {
@@ -121,13 +277,13 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
       for (int i = 0; i < exo.getMotorCount(); i++) {
         id = exo.getMotorIDByIndex(i);
         float val = exo.getRelativeAngle(id);
-        debugPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") relative angle: " + String(val, 2));
+        commandPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") relative angle: " + String(val, 2));
       }
     } else {
       id = getArgMotorID(exo, token, 1);
       if (id != -1) {
         float val = exo.getRelativeAngle(id);
-        debugPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") relative angle: " + String(val, 2));
+        commandPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") relative angle: " + String(val, 2));
       }
     }
 
@@ -144,13 +300,13 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
       for (int i = 0; i < exo.getMotorCount(); i++) {
         id = exo.getMotorIDByIndex(i);
         float val = exo.getAbsoluteAngle(id);
-        debugPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") absolute angle: " + String(val, 2));
+        commandPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") absolute angle: " + String(val, 2));
        }
     } else {
       id = getArgMotorID(exo, token, 1);
       if (id != -1) {
         float val = exo.getAbsoluteAngle(id);
-        debugPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") absolute angle: " + String(val, 2));
+        commandPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") absolute angle: " + String(val, 2));
       }
     }
 
@@ -163,7 +319,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     id = getArgMotorID(exo, token, 1);
     if (id != -1) {
       float zero = exo.getZeroAngle(id);
-      debugPrint("Motor " + String(id) + " zero angle: " + String(zero, 2));
+      commandPrint("Motor " + String(id) + " zero angle: " + String(zero, 2));
     }
 
   } else if (cmd == "set_home") {
@@ -179,7 +335,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     id = getArgMotorID(exo, token, 1);
     if (id != -1) {
       float current_mA = exo.getCurrent(id) * 2.69f;
-      debugPrint("Motor " + String(id) + " current: " + String(current_mA, 2) + " mA");
+      commandPrint("Motor " + String(id) + " current: " + String(current_mA, 2) + " mA");
     }
 
   } else if (cmd == "set_current_lim") {
@@ -188,20 +344,20 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     if (id != -1) exo.setCurrentLimit(id, val);
 
   } else if (cmd == "get_current_lim") {
-    debugPrint("Command not supported yet");
+    commandPrint("Command not supported yet");
 
 
   } else if (cmd == "get_torque") {
     id = getArgMotorID(exo, token, 1);
     if (id != -1) {
       float torque = exo.getTorque(id);
-      debugPrint("Motor " + String(id) + " torque: " + String(torque, 4) + " N·m");
+      commandPrint("Motor " + String(id) + " torque: " + String(torque, 4) + " N·m");
     }
 
   } else if (cmd == "get_motor_limits") {
     id = getArgMotorID(exo, token, 1);
     if (id != -1) {
-      debugPrint("Motor " + String(id) + " limits: " + exo.getMotorLimits(id));
+      commandPrint("Motor " + String(id) + " limits: " + exo.getMotorLimits(id));
     }
 
   } else if (cmd == "set_upper_limit") {
@@ -223,7 +379,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
       float upperLimit = limitsStr.substring(colonIndex + 1).toFloat();
       if (id != -1) exo.setMotorLimits(id, lowerLimit, upperLimit);
     } else {
-      debugPrint("Invalid limits format. Use 'lower:upper'");
+      commandPrint("Invalid limits format. Use 'lower:upper'");
     }
 
   } else if (cmd == "led") {
@@ -242,7 +398,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
   } else if (cmd == "debug") {
     String stateStr = getArg(token, 1);
     VERBOSE = (stateStr == "on" || stateStr == "1");
-    debugPrint(" Debug state: " + String(VERBOSE ? "true" : "false"));
+    commandPrint(" Debug state: " + String(VERBOSE ? "true" : "false"));
 
   } else if (cmd == "reboot") {
     String arg = getArg(token, 1);
@@ -268,19 +424,19 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
 
   } else if (cmd == "get_motor_mode") {
     String mode = exo.getMotorControlMode();
-    debugPrint("Motor control mode: " + mode);
+    commandPrint("Motor control mode: " + mode);
 
   } else if (cmd == "set_motor_mode") {
     String modeStr = getArg(token, 1);
     if (modeStr == "position" || modeStr == "current_position" || modeStr == "velocity") {
       exo.setMotorControlMode(modeStr);
     } else {
-      debugPrint("Invalid motor mode. Use 'position', 'current_position', or 'velocity'.");
+      commandPrint("Invalid motor mode. Use 'position', 'current_position', or 'velocity'.");
     }
 
   } else if (cmd == "get_exo_mode") {
     String mode = exo.getExoOperatingMode();
-    debugPrint("Exo device mode: " + mode);
+    commandPrint("Exo device mode: " + mode);
 
   } else if (cmd == "set_exo_mode") {
     String modeStr = getArg(token, 1);
@@ -288,10 +444,10 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     
   } else if (cmd == "get_gesture") {
     String current_gesture = gc.getCurrentGesture();
-    debugPrint("Current gesture: " + current_gesture);
+    commandPrint("Current gesture: " + current_gesture);
 
   } else if (cmd == "gesture_list") {
-    debugPrint("Command not supported yet");
+    commandPrint("Command not supported yet");
 
   } else if (cmd == "set_gesture") { 
     String gestureStr = getArg(token, 1);
@@ -324,67 +480,59 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, ISM330DLCSensor& imu, 
     exo.beginCalibration(timed, duration);
 
   } else if (cmd == "version") {
-    debugPrint("Exo Device Version: " + String(NMLHandExo::VERSION));
+    commandPrint("Exo Device Version: " + String(NMLHandExo::VERSION));
 
   } else if (cmd == "info") {
     debugPrint("Device Info: ");
     exo.printDeviceInfo(*debugStream); 
 
   } else if (cmd == "get_imu") {
-    debugPrint("Getting IMU data");
-    int32_t accel[3] = {0};
-    int32_t gyro[3]  = {0};
-
-    imu.Get_X_Axes(accel);
-    imu.Get_G_Axes(gyro);
-
-    debugPrint("Accel (mg): X=" + String(accel[0]) + ", Y=" + String(accel[1]) + ", Z=" + String(accel[2]));
-    debugPrint("Gyro (mdps): X=" + String(gyro[0]) + ", Y=" + String(gyro[1]) + ", Z=" + String(gyro[2]));
-  
+    getIMUData(imu);
   
   } else if (token == "help") {
     // TO-DO: See if changing these static messages to flash memory debugPrint(F("message")); makes boot faster
-    debugPrint(" ================================== List of commands ======================================");
-    debugPrint(" led                 |  ID/NAME/ALL:ON/OFF  | // Turn motor LED on/off");
-    debugPrint(" help                |                      | // Display available commands");
-    debugPrint(" home                |  ID/NAME/ALL         | // Set specific motor (or all) to home position");
-    debugPrint(" info                |                      | // Gets information about exo device. Returns string of metadata with comma delimiters");
-    debugPrint(" debug               |  ON/OFF              | // Set verbose output on/off");
-    debugPrint(" reboot              |  ID/NAME/ALL         | // Reboot motor");
-    debugPrint(" version             |                      | // Get current software version");
-    debugPrint(" enable              |  ID/NAME             | // Enable torque for motor");
-    debugPrint(" disable             |  ID/NAME             | // Disable torque for motor");
-    debugPrint(" get_baud            |  ID/NAME             | // Get baud rate for motor");
-    debugPrint(" set_baud            |  ID/NAME:VALUE       | // Set baud rate for motor");
-    debugPrint(" get_vel             |  ID/NAME             | // Get current velocity profile for motor");
-    debugPrint(" set_vel             |  ID/NAME:VALUE       | // Set velocity profile for motor");
-    debugPrint(" get_acc             |  ID/NAME             | // Get current acceleration profile for motor");
-    debugPrint(" set_acc             |  ID/NAME:VALUE       | // Set acceleration limit for motor");
-    debugPrint(" get_home            |  ID/NAME             | // Get stored zero position");
-    debugPrint(" set_home            |  ID/NAME:VALUE       | // Set current position as new zero angle");
-    debugPrint(" get_angle           |  ID/NAME             | // Get relative motor angle");
-    debugPrint(" set_angle           |  ID/NAME:ANGLE       | // Set motor angle");
-    debugPrint(" get_absangle        |  ID/NAME/ALL         | // Get absolute motor angle");
-    debugPrint(" set_absangle        |  ID/NAME:ANGLE       | // Set absolute motor angle");
-    debugPrint(" get_torque          |  ID/NAME             | // Get torque output reading from motor");
-    debugPrint(" get_current         |  ID/NAME             | // Get current draw from motor");
-    debugPrint(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor");
-    debugPrint(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor");
-    debugPrint(" get_motor_limits    |  ID/NAME             | // Get motor limits (upper and lower bounds)");
-    debugPrint(" set_motor_limits    |  ID/NAME:VAL:VAL     | // Set motor limits (upper and lower bounds)");
-    debugPrint(" set_upperpos_lim    |  ID/NAME:ANGLE       | // Set the absolute upper bound position limit for the motor");
-    debugPrint(" set_lowerpos_lim    |  ID/NAME:ANGLE       | // Set the absolute lower bound position limit for the motor");
-    debugPrint(" get_motor_mode      |                      | // Get motor control mode");
-    debugPrint(" set_motor_mode      |  VALUE               | // Set motor control mode ('POSITION', 'CURRENT_POSITION', 'VELOCITY')");
-    debugPrint(" get_exo_mode        |                      | // Get exo device operation mode");
-    debugPrint(" set_exo_mode        |  VALUE               | // Set exo device operation mode (FREE', 'GESTURE_FIXED', 'GESTURE_CONTINUOUS')");
-    debugPrint(" gesture_list        |                      | // Get gestures in library");
-    debugPrint(" set_gesture         |  NAME:VALUE          | // Set exo gesture");
-    debugPrint(" get_gesture         |                      | // Get exo gesture");
-    debugPrint(" cycle_gesture       |                      | // Executes the next gesture in the library");
-    debugPrint(" cycle_gesture_state |                      | // Cycles the next gesture state");
-    debugPrint(" calibrate_exo       |  VALUE:VALUE         | // start the calibration routine for the exo");
-    debugPrint(" ==========================================================================================");
+    commandPrint(" ================================== List of commands ======================================");
+    commandPrint(" led                 |  ID/NAME/ALL:ON/OFF  | // Turn motor LED on/off");
+    commandPrint(" help                |                      | // Display available commands");
+    commandPrint(" home                |  ID/NAME/ALL         | // Set specific motor (or all) to home position");
+    commandPrint(" info                |                      | // Gets information about exo device. Returns string of metadata with comma delimiters");
+    commandPrint(" debug               |  ON/OFF              | // Set verbose output on/off");
+    commandPrint(" reboot              |  ID/NAME/ALL         | // Reboot motor");
+    commandPrint(" version             |                      | // Get current software version");
+    commandPrint(" enable              |  ID/NAME             | // Enable torque for motor");
+    commandPrint(" disable             |  ID/NAME             | // Disable torque for motor");
+    commandPrint(" get_baud            |  ID/NAME             | // Get baud rate for motor");
+    commandPrint(" set_baud            |  ID/NAME:VALUE       | // Set baud rate for motor");
+    commandPrint(" get_vel             |  ID/NAME             | // Get current velocity profile for motor");
+    commandPrint(" set_vel             |  ID/NAME:VALUE       | // Set velocity profile for motor");
+    commandPrint(" get_acc             |  ID/NAME             | // Get current acceleration profile for motor");
+    commandPrint(" set_acc             |  ID/NAME:VALUE       | // Set acceleration limit for motor");
+    commandPrint(" get_home            |  ID/NAME             | // Get stored zero position");
+    commandPrint(" set_home            |  ID/NAME:VALUE       | // Set current position as new zero angle");
+    commandPrint(" get_angle           |  ID/NAME             | // Get relative motor angle");
+    commandPrint(" set_angle           |  ID/NAME:ANGLE       | // Set motor angle");
+    commandPrint(" get_absangle        |  ID/NAME/ALL         | // Get absolute motor angle");
+    commandPrint(" set_absangle        |  ID/NAME:ANGLE       | // Set absolute motor angle");
+    commandPrint(" get_torque          |  ID/NAME             | // Get torque output reading from motor");
+    commandPrint(" get_current         |  ID/NAME             | // Get current draw from motor");
+    commandPrint(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor");
+    commandPrint(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor");
+    commandPrint(" get_motor_limits    |  ID/NAME             | // Get motor limits (upper and lower bounds)");
+    commandPrint(" set_motor_limits    |  ID/NAME:VAL:VAL     | // Set motor limits (upper and lower bounds)");
+    commandPrint(" set_upperpos_lim    |  ID/NAME:ANGLE       | // Set the absolute upper bound position limit for the motor");
+    commandPrint(" set_lowerpos_lim    |  ID/NAME:ANGLE       | // Set the absolute lower bound position limit for the motor");
+    commandPrint(" get_motor_mode      |                      | // Get motor control mode");
+    commandPrint(" set_motor_mode      |  VALUE               | // Set motor control mode ('POSITION', 'CURRENT_POSITION', 'VELOCITY')");
+    commandPrint(" get_exo_mode        |                      | // Get exo device operation mode");
+    commandPrint(" set_exo_mode        |  VALUE               | // Set exo device operation mode (FREE', 'GESTURE_FIXED', 'GESTURE_CONTINUOUS')");
+    commandPrint(" gesture_list        |                      | // Get gestures in library");
+    commandPrint(" set_gesture         |  NAME:VALUE          | // Set exo gesture");
+    commandPrint(" get_gesture         |                      | // Get exo gesture");
+    commandPrint(" cycle_gesture       |                      | // Executes the next gesture in the library");
+    commandPrint(" cycle_gesture_state |                      | // Cycles the next gesture state");
+    commandPrint(" calibrate_exo       |  VALUE:VALUE         | // start the calibration routine for the exo");
+    commandPrint(" get_imu             |                      | // Returns list of accel & gyro values");
+    commandPrint(" ==========================================================================================");
   } else {
     debugPrint("Unknown command: " + token);
   }
