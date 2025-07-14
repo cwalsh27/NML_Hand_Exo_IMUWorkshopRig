@@ -20,6 +20,7 @@
   //SoftwareSerial soft_serial(7, 8); // DYNAMIXELShield UART RX/TX
   #define DEBUG_SERIAL Serial
   #define DXL_SERIAL Serial1
+  #define BLE_SERIAL Serial2
   //#define BLE_SERIAL soft_serial
   //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
 #elif defined(ARDUINO_SAM_DUE) // When using DynamixelShield

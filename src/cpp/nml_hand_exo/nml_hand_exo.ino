@@ -26,9 +26,6 @@ SOFTWARE.
 #include "utils.h"
 #include "nml_hand_exo.h"
 #include "gesture_controller.h"
-//#include <Wire.h>
-//#include <ISM330DLCSensor.h>
-
 #include <Adafruit_ISM330DHCX.h>
 
 // Create IMU device (The "ISM330DLC" library can be downloaded from Arduino's Library Manager)
@@ -79,7 +76,6 @@ void loop() {
 
   // Handle data from the debug connection
   if (DEBUG_SERIAL.available() > 0) {
-    digitalWrite(STATUS_LED_PIN, HIGH);
     String input = DEBUG_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
@@ -88,7 +84,6 @@ void loop() {
 
   // Handle data from the BLE/command connection
   if (BLE_SERIAL.available() > 0) {
-    digitalWrite(STATUS_LED_PIN, HIGH);
     String input = BLE_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
@@ -100,4 +95,5 @@ void loop() {
 
   // Check for any updates needed with the gesture controller
   gc.update();
+
 }

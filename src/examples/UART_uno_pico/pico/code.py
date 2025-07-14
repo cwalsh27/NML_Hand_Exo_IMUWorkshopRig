@@ -1,20 +1,26 @@
 import time
-import board
-import busio
+from usbserialreader import USBSerialReader
 
-# Initialize UART using Pico GP16 (TX, not used) and GP17 (RX)
-uart = busio.UART(tx=board.GP4, rx=board.GP5, baudrate=9600, timeout=0.1)
+# Initialize your custom serial reader using UART (not USB CDC)
+reader = USBSerialReader(use_UART=True, baudrate=9600, TERMINATOR='\n', verbose=True)
 
-print("UART Echo is ready.")
+print("USBSerialReader ready.")
+
 while True:
-    data = uart.read(32)  # Try reading up to 32 bytes
-    if data:
-        try:
-            decoded = data.decode("utf-8").strip()
-            print("Received:", decoded)
-            uart.write(data)  # Echo the exact bytes back
-        except UnicodeError:
-            print("Received non-UTF-8 data:", data)
-            uart.write(data)
-            
-    time.sleep(0.01)  # Small delay to prevent CPU overuse
+    # Send command
+    command = "version\n"
+    reader.send(command)
+    print(f"Sent: {command.strip()}")
+
+    # Wait for response
+    start = time.monotonic()
+    timeout = 1.0  # 1 second timeout
+    while time.monotonic() - start < timeout:
+        reader.update()
+        if reader._out_data:
+            for parsed_cmd in reader.out_data:
+                print("Received:", parsed_cmd)
+            break
+        time.sleep(0.01)
+    
+    time.sleep(0.5)  # Small delay before next command

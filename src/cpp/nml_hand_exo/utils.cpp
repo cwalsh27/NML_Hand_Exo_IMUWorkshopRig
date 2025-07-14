@@ -13,7 +13,8 @@ void debugPrint(const String& msg) {
   // Prints out message to debug serial port if VERBOSE is set to true
   if (VERBOSE) {
     #if defined(DEBUG_SERIAL)
-      DEBUG_SERIAL(msg);
+      //DEBUG_SERIAL(msg);
+      DEBUG_SERIAL.println(msg);
     #else
       Serial.println(msg);  // fallback
     #endif
@@ -23,7 +24,8 @@ void debugPrint(const String& msg) {
 void commandPrint(const String& msg) {
   // Prints out message to DEBUG/CMD serial port regardless of VERBOSE mode 
   #if defined(DEBUG_SERIAL)
-    DEBUG_SERIAL(msg);
+    //DEBUG_SERIAL(msg);
+      DEBUG_SERIAL.println(msg);
   #else
     Serial.println(msg);  // fallback
   #endif
@@ -390,6 +392,9 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     target.trim(); target.toUpperCase();
     if (target == "ALL") {
       exo.setAllMotorLED(state);
+      digitalWrite(STATUS_LED_PIN, state);
+    } else if (target == "STATUS") {
+      digitalWrite(STATUS_LED_PIN, state);
     } else {
       id = exo.getMotorID(target);
       if (id != -1) exo.setMotorLED(id, state);
@@ -491,48 +496,48 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
   
   } else if (token == "help") {
     // TO-DO: See if changing these static messages to flash memory debugPrint(F("message")); makes boot faster
-    commandPrint(" ================================== List of commands ======================================");
-    commandPrint(" led                 |  ID/NAME/ALL:ON/OFF  | // Turn motor LED on/off");
-    commandPrint(" help                |                      | // Display available commands");
-    commandPrint(" home                |  ID/NAME/ALL         | // Set specific motor (or all) to home position");
-    commandPrint(" info                |                      | // Gets information about exo device. Returns string of metadata with comma delimiters");
-    commandPrint(" debug               |  ON/OFF              | // Set verbose output on/off");
-    commandPrint(" reboot              |  ID/NAME/ALL         | // Reboot motor");
-    commandPrint(" version             |                      | // Get current software version");
-    commandPrint(" enable              |  ID/NAME             | // Enable torque for motor");
-    commandPrint(" disable             |  ID/NAME             | // Disable torque for motor");
-    commandPrint(" get_baud            |  ID/NAME             | // Get baud rate for motor");
-    commandPrint(" set_baud            |  ID/NAME:VALUE       | // Set baud rate for motor");
-    commandPrint(" get_vel             |  ID/NAME             | // Get current velocity profile for motor");
-    commandPrint(" set_vel             |  ID/NAME:VALUE       | // Set velocity profile for motor");
-    commandPrint(" get_acc             |  ID/NAME             | // Get current acceleration profile for motor");
-    commandPrint(" set_acc             |  ID/NAME:VALUE       | // Set acceleration limit for motor");
-    commandPrint(" get_home            |  ID/NAME             | // Get stored zero position");
-    commandPrint(" set_home            |  ID/NAME:VALUE       | // Set current position as new zero angle");
-    commandPrint(" get_angle           |  ID/NAME             | // Get relative motor angle");
-    commandPrint(" set_angle           |  ID/NAME:ANGLE       | // Set motor angle");
-    commandPrint(" get_absangle        |  ID/NAME/ALL         | // Get absolute motor angle");
-    commandPrint(" set_absangle        |  ID/NAME:ANGLE       | // Set absolute motor angle");
-    commandPrint(" get_torque          |  ID/NAME             | // Get torque output reading from motor");
-    commandPrint(" get_current         |  ID/NAME             | // Get current draw from motor");
-    commandPrint(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor");
-    commandPrint(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor");
-    commandPrint(" get_motor_limits    |  ID/NAME             | // Get motor limits (upper and lower bounds)");
-    commandPrint(" set_motor_limits    |  ID/NAME:VAL:VAL     | // Set motor limits (upper and lower bounds)");
-    commandPrint(" set_upperpos_lim    |  ID/NAME:ANGLE       | // Set the absolute upper bound position limit for the motor");
-    commandPrint(" set_lowerpos_lim    |  ID/NAME:ANGLE       | // Set the absolute lower bound position limit for the motor");
-    commandPrint(" get_motor_mode      |                      | // Get motor control mode");
-    commandPrint(" set_motor_mode      |  VALUE               | // Set motor control mode ('POSITION', 'CURRENT_POSITION', 'VELOCITY')");
-    commandPrint(" get_exo_mode        |                      | // Get exo device operation mode");
-    commandPrint(" set_exo_mode        |  VALUE               | // Set exo device operation mode (FREE', 'GESTURE_FIXED', 'GESTURE_CONTINUOUS')");
-    commandPrint(" gesture_list        |                      | // Get gestures in library");
-    commandPrint(" set_gesture         |  NAME:VALUE          | // Set exo gesture");
-    commandPrint(" get_gesture         |                      | // Get exo gesture");
-    commandPrint(" cycle_gesture       |                      | // Executes the next gesture in the library");
-    commandPrint(" cycle_gesture_state |                      | // Cycles the next gesture state");
-    commandPrint(" calibrate_exo       |  VALUE:VALUE         | // start the calibration routine for the exo");
-    commandPrint(" get_imu             |                      | // Returns list of accel & gyro values");
-    commandPrint(" ==========================================================================================");
+    commandPrint(F(" ================================== List of commands ======================================"));
+    commandPrint(F(" led                 |  ID/NAME/ALL:ON/OFF  | // Turn motor or system LED on/off"));
+    commandPrint(F(" help                |                      | // Display available commands"));
+    commandPrint(F(" home                |  ID/NAME/ALL         | // Set specific motor (or all) to home position"));
+    commandPrint(F(" info                |                      | // Gets information about exo device. Returns string of metadata with comma delimiters"));
+    commandPrint(F(" debug               |  ON/OFF              | // Set verbose output on/off"));
+    commandPrint(F(" reboot              |  ID/NAME/ALL         | // Reboot motor"));
+    commandPrint(F(" version             |                      | // Get current software version"));
+    commandPrint(F(" enable              |  ID/NAME             | // Enable torque for motor"));
+    commandPrint(F(" disable             |  ID/NAME             | // Disable torque for motor"));
+    commandPrint(F(" get_baud            |  ID/NAME             | // Get baud rate for motor"));
+    commandPrint(F(" set_baud            |  ID/NAME:VALUE       | // Set baud rate for motor"));
+    commandPrint(F(" get_vel             |  ID/NAME             | // Get current velocity profile for motor"));
+    commandPrint(F(" set_vel             |  ID/NAME:VALUE       | // Set velocity profile for motor"));
+    commandPrint(F(" get_acc             |  ID/NAME             | // Get current acceleration profile for motor"));
+    commandPrint(F(" set_acc             |  ID/NAME:VALUE       | // Set acceleration limit for motor"));
+    commandPrint(F(" get_home            |  ID/NAME             | // Get stored zero position"));
+    commandPrint(F(" set_home            |  ID/NAME:VALUE       | // Set current position as new zero angle"));
+    commandPrint(F(" get_angle           |  ID/NAME             | // Get relative motor angle"));
+    commandPrint(F(" set_angle           |  ID/NAME:ANGLE       | // Set motor angle"));
+    commandPrint(F(" get_absangle        |  ID/NAME/ALL         | // Get absolute motor angle"));
+    commandPrint(F(" set_absangle        |  ID/NAME:ANGLE       | // Set absolute motor angle"));
+    commandPrint(F(" get_torque          |  ID/NAME             | // Get torque output reading from motor"));
+    commandPrint(F(" get_current         |  ID/NAME             | // Get current draw from motor"));
+    commandPrint(F(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor"));
+    commandPrint(F(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor"));
+    commandPrint(F(" get_motor_limits    |  ID/NAME             | // Get motor limits (upper and lower bounds)"));
+    commandPrint(F(" set_motor_limits    |  ID/NAME:VAL:VAL     | // Set motor limits (upper and lower bounds)"));
+    commandPrint(F(" set_upperpos_lim    |  ID/NAME:ANGLE       | // Set the absolute upper bound position limit for the motor"));
+    commandPrint(F(" set_lowerpos_lim    |  ID/NAME:ANGLE       | // Set the absolute lower bound position limit for the motor"));
+    commandPrint(F(" get_motor_mode      |                      | // Get motor control mode"));
+    commandPrint(F(" set_motor_mode      |  VALUE               | // Set motor control mode ('POSITION', 'CURRENT_POSITION', 'VELOCITY')"));
+    commandPrint(F(" get_exo_mode        |                      | // Get exo device operation mode"));
+    commandPrint(F(" set_exo_mode        |  VALUE               | // Set exo device operation mode (FREE', 'GESTURE_FIXED', 'GESTURE_CONTINUOUS')"));
+    commandPrint(F(" gesture_list        |                      | // Get gestures in library"));
+    commandPrint(F(" set_gesture         |  NAME:VALUE          | // Set exo gesture"));
+    commandPrint(F(" get_gesture         |                      | // Get exo gesture"));
+    commandPrint(F(" cycle_gesture       |                      | // Executes the next gesture in the library"));
+    commandPrint(F(" cycle_gesture_state |                      | // Cycles the next gesture state"));
+    commandPrint(F(" calibrate_exo       |  VALUE:VALUE         | // start the calibration routine for the exo"));
+    commandPrint(F(" get_imu             |                      | // Returns list of accel & gyro values"));
+    commandPrint(F(" =========================================================================================="));
   } else {
     debugPrint("Unknown command: " + token);
   }
