@@ -61,7 +61,7 @@ constexpr float HOME_STATES[] = {  208.0,  147.0,  268.0,  167.0,  185.0,  183.0
 constexpr long DEBUG_BAUD_RATE = 57600;
 
 /// @brief Default baud rates for BLE communication.
-constexpr long BLE_BAUD_RATE = 9600;
+constexpr long COMMAND_BAUD_RATE = 57600;
 
 /// @brief Default baud rate for Dynamixel communication.
 constexpr long DYNAMIXEL_BAUD_RATE = 57600;

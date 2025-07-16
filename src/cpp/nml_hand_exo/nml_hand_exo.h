@@ -15,7 +15,7 @@ using namespace ControlTableItem;
 extern bool VERBOSE;
 
 /// @brief Bluetooth serial stream used for commands.
-extern Stream& BLE_SERIAL;
+extern Stream& COMMAND_SERIAL;
 
 extern Stream* debugStream;
 
@@ -123,8 +123,7 @@ class NMLHandExo {
 
     /// @brief Get a string summarizing the device information.
     // @return Information string.
-    //String getDeviceInfo();
-    void printDeviceInfo(Stream& out);
+    String getDeviceInfo();
 
     /// @brief Get the number of motors
     /// @return integer, number of motors.
@@ -174,7 +173,6 @@ class NMLHandExo {
 
     /// @brief Cycle through the exo operating modes.
     void cycleExoOperatingMode();
-
 
 
     // -----------------------------------------------------------
@@ -249,6 +247,10 @@ class NMLHandExo {
     // -----------------------------------------------------------
     // Torque commands
     // -----------------------------------------------------------
+
+    /// @brief Check if torque is enabled for a motor.
+    /// @param id Motor ID.
+    bool getTorqueEnabledStatus(uint8_t id);
 
     /// @brief Enable or disable torque for a motor.
     /// @param id Motor ID.
@@ -353,7 +355,7 @@ class NMLHandExo {
     String getMotorMode();
 
     /// @brief Current software version.
-    static constexpr const char* VERSION = "0.2.6";
+    static constexpr const char* VERSION = "0.2.10";
 
   private:
     /// @brief Dynamixel2Arduino object for motor communication.

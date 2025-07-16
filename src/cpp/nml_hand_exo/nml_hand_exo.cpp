@@ -20,24 +20,24 @@
   //SoftwareSerial soft_serial(7, 8); // DYNAMIXELShield UART RX/TX
   #define DEBUG_SERIAL Serial
   #define DXL_SERIAL Serial1
-  #define BLE_SERIAL Serial2
+  #define COMMAND_SERIAL Serial2
   //#define BLE_SERIAL soft_serial
   //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
 #elif defined(ARDUINO_SAM_DUE) // When using DynamixelShield
   #define DXL_SERIAL   Serial
-  #define BLE_SERIAL Serial1
+  #define COMMAND_SERIAL Serial1
   //#define DEBUG_SERIAL Serial1
   //#define DEBUG_SERIAL SerialUSB
   //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
 #elif defined(ARDUINO_SAM_ZERO) // When using DynamixelShield
   #define DEBUG_SERIAL Serial
   #define DXL_SERIAL   Serial1
-  #define BLE_SERIAL Serial2
+  #define COMMAND_SERIAL Serial2
   //#define DEBUG_SERIAL SerialUSB
   //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
 #elif defined(ARDUINO_OpenCM904) // When using official ROBOTIS board with DXL circuit.
   #define DEBUG_SERIAL Serial
-  #define BLE_SERIAL Serial2
+  #define COMMAND_SERIAL Serial2
   #define DXL_SERIAL   Serial3 //OpenCM9.04 EXP Board's DXL port Serial. (Serial1 for the DXL port on the OpenCM 9.04 board)
   //#define DEBUG_SERIAL Serial
   //const int DXL_DIR_PIN = 22; //OpenCM9.04 EXP Board's DIR PIN. (28 for the DXL port on the OpenCM 9.04 board)
@@ -45,7 +45,7 @@
   // For OpenCR, there is a DXL Power Enable pin, so you must initialize and control it.
   // Reference link : https://github.com/ROBOTIS-GIT/OpenCR/blob/master/arduino/opencr_arduino/opencr/libraries/DynamixelSDK/src/dynamixel_sdk/port_handler_arduino.cpp#L78
   #define DEBUG_SERIAL Serial
-  #define BLE_SERIAL Serial2
+  #define COMMAND_SERIAL Serial2
   #define DXL_SERIAL   Serial3
   //#define DEBUG_SERIAL Serial
   //const int DXL_DIR_PIN = 84; // OpenCR Board's DIR PIN.
@@ -53,7 +53,7 @@
   //OpenRB does not require the DIR control pin.
   #define DEBUG_SERIAL Serial
   #define DXL_SERIAL Serial1
-  #define BLE_SERIAL Serial2
+  #define COMMAND_SERIAL Serial2
   //#define DEBUG_SERIAL Serial
   //const int DXL_DIR_PIN = -1;
 #else // Other boards when using DynamixelShield
@@ -222,41 +222,30 @@ void NMLHandExo::resetAllZeros() {
     debugPrint("[DEBUG] Zero offset set for motor " + String(id) + ": " + String(current_angle, 2) + " deg");
   }
 }
-void NMLHandExo::printDeviceInfo(Stream& out) {
-  out.print("version:");
-  out.print(VERSION);
-  out.print(",n_motors:");
-  out.println(numMotors_);
+String NMLHandExo::getDeviceInfo() {
 
-  for (int i = 0; i < numMotors_; ++i) {
-    const char* name = getMotorNameByID(motorIds_[i]).c_str();
-    float angle = getRelativeAngle(motorIds_[i]);
-    float minLimit = jointLimits_[i][0];
-    float maxLimit = jointLimits_[i][1];
-    float torque = getTorque(motorIds_[i]);
+    // Need to return a single string with all the information
+    String info = "Name: NMLHandExo;\n";
+    info += "Version: " + String(VERSION) + ";\n";
+    info += "Number of Motors: " + String(numMotors_) + ";\n";
+    for (int i = 0; i < numMotors_; ++i) {
+      const char* name = getMotorNameByID(motorIds_[i]).c_str();
+      float angle = getRelativeAngle(motorIds_[i]);
+      float minLimit = jointLimits_[i][0];
+      float maxLimit = jointLimits_[i][1];
+      float torque = getTorque(motorIds_[i]);
+      bool isEnabled = getTorqueEnabledStatus(motorIds_[i]);
 
-    // TO-DO: USe this method when it works
-    //char buf[128];
-    //snprintf(buf, sizeof(buf), "motor_%d:{name:%s,id:%d,angle:%.2f,limits[%.2f,%.2f],torque:%.2f}", i, name, motorIds_[i], angle, minLimit, maxLimit, torque);
-    //out.println(buf);
-
-    out.print("motor_");
-    out.print(i);
-    out.print(":{name:");
-    out.print(name);
-    out.print(",id:");
-    out.print(motorIds_[i]);
-    out.print(",angle:");
-    out.print(angle, 2);
-    out.print(",limits:[");
-    out.print(minLimit, 2);
-    out.print(",");
-    out.print(maxLimit, 2);
-    out.print("],torque:");
-    out.print(torque, 2);
-    out.println("}");
-  }
+      info += "Motor " + String(i) + ": {name: " + String(name) +
+            ", id: " + String(motorIds_[i]) +
+            ", angle: " + String(angle, 2) +
+            ", limits: [" + String(minLimit, 2) + ", " + String(maxLimit, 2) + "]" +
+            ", torque: " + String(torque, 2) +
+            ", enabled: " + (isEnabled ? "true" : "false") + "};\n";
+      }
+    return info;
 }
+
 int NMLHandExo::getMotorCount() {
   return numMotors_;
 }
@@ -595,6 +584,12 @@ void NMLHandExo::setMotorLimits(uint8_t id, float lowerLimit, float upperLimit) 
 // ====================================================================================
 // ============================ Torque commands =======================================
 // ====================================================================================
+
+bool NMLHandExo::getTorqueEnabledStatus(uint8_t id) {
+  // Check if torque is enabled for the specified motor ID
+  return dxl_.getTorqueEnableStat(id);
+}
+
 void NMLHandExo::enableTorque(uint8_t id, bool enable) {
   if (enable) {
     dxl_.torqueOn(id);

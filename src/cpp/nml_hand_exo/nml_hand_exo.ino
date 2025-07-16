@@ -33,7 +33,7 @@ Adafruit_ISM330DHCX ism330dhcx;
 
 // TO-DO: Move these to config.h or nml_hand_exo.h
 #define DEBUG_SERIAL Serial
-#define BLE_SERIAL Serial2
+#define COMMAND_SERIAL Serial2
 
 // Create the exo device with the motor parameters and id values
 NMLHandExo exo(MOTOR_IDS, N_MOTORS, jointLimits, HOME_STATES);
@@ -47,8 +47,7 @@ void setup() {
 
   // Serial connections
   DEBUG_SERIAL.begin(DEBUG_BAUD_RATE);    // Setting a default baud rate of 57600
-  while (!DEBUG_SERIAL);
-  BLE_SERIAL.begin(BLE_BAUD_RATE);     // (Optional) Establish port with TX/RX pins for incomming serial data/commands
+  COMMAND_SERIAL.begin(COMMAND_BAUD_RATE);     // (Optional) Establish port with TX/RX pins for incomming serial data/commands
 
   // Setup IMU
   initializeIMU(ism330dhcx);
@@ -83,8 +82,8 @@ void loop() {
   }
 
   // Handle data from the BLE/command connection
-  if (BLE_SERIAL.available() > 0) {
-    String input = BLE_SERIAL.readStringUntil('\n');
+  if (COMMAND_SERIAL.available() > 0) {
+    String input = COMMAND_SERIAL.readStringUntil('\n');
     input.trim();
     debugPrint("Received: " + input);
     parseMessage(exo, gc, ism330dhcx, input);

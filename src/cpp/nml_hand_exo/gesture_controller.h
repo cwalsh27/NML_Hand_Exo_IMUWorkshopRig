@@ -23,6 +23,10 @@ public:
     /// @param state State of the gesture (e.g., "a")
     void executeGesture(const String& gesture, const String& state);
 
+    /// @brief Execute a predefined state with the current gesture
+    /// @param state State of the gesture (e.g., "a")
+    void executeCurrentGestureNewState(const String& state);
+
     /// @brief Assign pin for gesture state switch interrupt.
     /// @param pin Interrupt pin.
     void setGestureStateSwitchButton(const int pin);
@@ -48,6 +52,10 @@ public:
     /// @brief Get the current gesture being executed.
     /// @return Current gesture name
     String getCurrentGesture();
+
+    /// @brief Get the current gesture state being executed.
+    /// @return Current gesture state name
+    String getCurrentGestureState();
 
     /// @brief Update the gesture controller state, including checking for button presses.
     void update();

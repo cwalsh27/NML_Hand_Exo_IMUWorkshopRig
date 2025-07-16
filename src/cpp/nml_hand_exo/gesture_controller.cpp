@@ -42,6 +42,28 @@ void GestureController::executeGesture(const String& gesture, const String& stat
   debugPrint("[GestureController] Executed gesture: " + gesture + ", state: " + state);
 }
 
+void GestureController::executeCurrentGestureNewState(const String& state) {
+  // Get the current gesture
+  String gesture = getCurrentGesture();
+
+  // Find the gesture index
+  int gIdx = findGestureIndex(gesture);
+  if (gIdx == -1) {
+    debugPrint("[GestureController] Unknown gesture: " + gesture);
+    return;
+  }
+
+  // Check if the state exists for the gesture
+  int sIdx = findStateIndex(gestureLibrary[gIdx], state);
+  if (sIdx == -1) {
+    debugPrint("[GestureController] Error: State '" + state + "' not found for gesture '" + gesture + "'.");
+    return;
+  }
+
+  // Execute the gesture with the specified state
+  executeGesture(gesture, state);
+}
+
 void GestureController::setCycleGestureButton(const int pin) {
   cycleGesturePin = pin;
   pinMode(pin, INPUT_PULLUP);
@@ -131,6 +153,10 @@ void GestureController::cycleGesture() {
 
 String GestureController::getCurrentGesture() {
     return currentGesture_;
+}
+
+String GestureController::getCurrentGestureState() {
+    return currentGestureState_;
 }
 
 void GestureController::cycleGestureState() {

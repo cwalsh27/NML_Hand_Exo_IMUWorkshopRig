@@ -1,7 +1,8 @@
 import numpy as np
 import time
-import serial
+import re
 
+from nml_hand_exo.interfaces import BaseComm, LowLevelTCPServer
 
 class HandExo(object):
     """
@@ -17,32 +18,27 @@ class HandExo(object):
 
     """
 
-    def __init__(self, name='NMLHandExo', port: str = None, baudrate: int = 57600, command_delimiter: str = '\n', send_delay: float = 0.01,
-                 verbose: bool = False):
+    def __init__(self, comm: BaseComm, name='NMLHandExo', command_delimiter: str = '\n', send_delay: float = 0.01,
+                 auto_connect=False, verbose: bool = False):
         """ 
         Initializes the HandExo interface.
         
         Args:
             name (str): Name of the exoskeleton instance.
-            port (str): Serial port to connect to (e.g., 'COM3' or '/dev/ttyUSB0').
-            baudrate (int): Baud rate for the serial connection (default is 57600).
             command_delimiter (str): Delimiter used to separate commands (default is '\n').
             send_delay (float): Delay in seconds after sending a command to allow processing (default is 0.01).
             verbose (bool): If True, enables verbose logging of commands and responses (default is False).
 
         """
-
         self.name = name
-        self.port = port
-        self.baudrate = baudrate
+        self.device = comm
         self.command_delimiter = command_delimiter
         self.send_delay = send_delay
         self.verbose = verbose
+        self.device.verbose = verbose
 
-        self.device = None
-        self.connected = False
-        if self.port is not None:
-            self.connect(self.port, self.baudrate)
+        if auto_connect:
+            self.device.connect()
 
     def logger(self, *argv, warning: bool = False):
         """ 
@@ -61,25 +57,10 @@ class HandExo(object):
             msg = f"\033[93m{msg}\033[0m" if warning else msg
             print(msg)
 
-    def connect(self, port: str, baudrate: int):
+    def connect(self):
         """
-        Establishes a serial connection to the exoskeleton.
-
-        Args:
-            port (str): Serial port to connect to.
-            baudrate (int): Baud rate for the serial connection.
-
         """
-        if not self.connected:
-            try:
-                self.device = serial.Serial(port, baudrate, timeout=1)
-                self.connected = self.device.is_open
-                if self.connected:
-                    print(f"Connection established on {port} at {baudrate} baud.")
-            except serial.SerialException as e:
-                print(f"[ERROR] Failed to connect: {e}")
-        else:
-            self.logger(f"Already connected to {self.port} at {self.baudrate} baud.", warning=True)
+        self.device.connect()
 
     def send_command(self, cmd: str):
         """
@@ -92,7 +73,7 @@ class HandExo(object):
         if not cmd.endswith(self.command_delimiter):
             cmd += self.command_delimiter
         try:
-            self.device.write(cmd.encode())
+            self.device.send(cmd)
             self.logger(f"Sent: {cmd.strip()}")
             time.sleep(self.send_delay)  # Allow time for the command to be processed
         except Exception as e:
@@ -106,16 +87,22 @@ class HandExo(object):
             str: The response from the exoskeleton, or an empty string if no response.
 
         """
-        try:
-            if self.device.in_waiting:
-                response = self.device.read_until(self.command_delimiter.encode()).decode().strip()
-                self.logger(f"Received: {response}")
-                return response
-        except Exception as e:
-            print(f"[ERROR] Failed to read response: {e}")
-        return ""
+        resp = self.device.receive()
+        if resp:
+            resp = resp.strip()
+            self.logger(f"Received: {resp}")
+            return resp
 
-    def enable_motor(self, motor_id: (int or str)):
+        # try:
+        #     if self.device.in_waiting:
+        #         response = self.device.receive(self.command_delimiter.encode()).decode().strip()
+        #         self.logger(f"Received: {response}")
+        #         return response
+        # except Exception as e:
+        #     print(f"[ERROR] Failed to read response: {e}")
+        # return ""
+
+    def enable_motor(self, motor_id: (int or str) = 'all'):
         """
         Enables the torque output for the specified motor.
 
@@ -128,7 +115,22 @@ class HandExo(object):
         """
         self.send_command(f"enable:{motor_id}")
 
-    def disable_motor(self, motor_id: (int or str)):
+    def is_enabled(self, motor_id: (int or str) = 'all') -> bool:
+        """
+        Checks if the specified motor is enabled.
+
+        Args:
+            motor_id (int or str): ID of the motor to check.
+
+        Returns:
+            bool: True if the motor is enabled, False otherwise.
+
+        """
+        self.send_command(f"get_enable:{motor_id}")
+        response = self._receive()
+        return response.lower() == 'true' if response else False
+
+    def disable_motor(self, motor_id: (int or str) = 'all'):
         """
         Disables the torque output for the specified motor.
 
@@ -141,7 +143,7 @@ class HandExo(object):
         """
         self.send_command(f"disable:{motor_id}")
 
-    def enable_led(self, motor_id: (int or str)):
+    def enable_led(self, motor_id: (int or str) = 'all'):
         """
         Enables the LED for the specified motor.
 
@@ -154,7 +156,7 @@ class HandExo(object):
         """
         self.send_command(f"led:{motor_id}:on")
 
-    def disable_led(self, motor_id: (int or str)):
+    def disable_led(self, motor_id: (int or str) = 'all'):
         """
         Disables the LED for the specified motor.
 
@@ -178,7 +180,18 @@ class HandExo(object):
         self.send_command("help")
         return self._receive()
 
-    def home(self, motor_id: (int or str)):
+    def version(self) -> str:
+        """
+        Gets the version of the exo
+        """
+        self.send_command("version")
+        response = self._receive()
+
+        if response:
+            return response.strip().split(':')[1]
+        return ""
+
+    def home(self, motor_id: (int or str) = 'all'):
         """
         Sends a home command to all motors, unless a specific motor ID is provided.
 
@@ -189,41 +202,75 @@ class HandExo(object):
             None
 
         """
-        if motor_id == 'all':
-            self.send_command("home:all")
-        else:
-            self.send_command(f"home:{motor_id}")
+        self.send_command(f"home:{motor_id}")
 
     def info(self) -> dict:
         """
-        Retrieves information about the exoskeleton, including version and motor details.
-
-        Returns:
-            dict: A dictionary containing version and motor information.
-
+        Parses the exoskeleton info response into a structured dictionary.
         """
         self.send_command("info")
         raw = self._receive()
+        print(f"Raw return: {raw}")
+
         info = {}
-        if raw:
-            try:
-                parts = raw.split(',')
-                info['version'] = parts[0]
+        if not raw:
+            return info
 
-                n_motors = int(parts[1])
-                info['n_motors'] = n_motors
+        try:
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
 
-                for i in range(n_motors):
-                    info[f'motor_{i}'] = {
-                        'name': parts[2 + i * 3],
-                        'angle': float(parts[3 + i * 3]),
-                        'torque': float(parts[4 + i * 3])
-                    }
-                return info
-            except Exception as e:
-                print(f"[ERROR] Failed to parse info: {e}")
+            # First line should have name, version, and motor count
+            header = lines[0]
+            name_match = re.search(r"Name:\s*([^\s]+)", header)
+            version_match = re.search(r"Version:\s*([^\s]+)", header)
+            motor_count_match = re.search(r"Number of Motors:\s*(\d+)", header)
 
-    def get_baudrate(self) -> int:
+            if name_match:
+                info['name'] = name_match.group(1)
+            if version_match:
+                info['version'] = version_match.group(1)
+            if motor_count_match:
+                info['n_motors'] = int(motor_count_match.group(1))
+
+            # Parse each motor line
+            for line in lines[1:]:
+                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
+                if not motor_match:
+                    continue
+
+                motor_id = int(motor_match.group(1))
+                motor_data = motor_match.group(2)
+
+                # Parse the individual fields inside the { ... }
+                motor_info = {}
+                for part in motor_data.split(','):
+                    key_val = part.strip().split(":", 1)
+                    if len(key_val) != 2:
+                        continue
+                    key, val = key_val[0].strip(), key_val[1].strip()
+                    if key == "id":
+                        motor_info["id"] = int(val)
+                    elif key == "angle":
+                        motor_info["angle"] = float(val)
+                    elif key == "limits":
+                        limits_match = re.findall(r"[-+]?[0-9]*\.?[0-9]+", val)
+                        motor_info["limits"] = [float(l) for l in limits_match]
+                    elif key == "torque":
+                        motor_info["torque"] = float(val)
+                    elif key == "enabled":
+                        motor_info["enabled"] = val.lower() == "true"
+                    else:
+                        motor_info[key] = val
+
+                info[f"motor_{motor_id}"] = motor_info
+
+            return info
+
+        except Exception as e:
+            print(f"[ERROR] Failed to parse info: {e}")
+            return {}
+
+    def get_baudrate(self, motor_id: (int or str) = 'all') -> int:
         """
         Retrieves the current baud rate of the serial connection.
 
@@ -231,11 +278,9 @@ class HandExo(object):
             int: The current baud rate.
 
         """
-        if self.device and self.device.is_open:
-            return self.device.baudrate
-        else:
-            print("[ERROR] Serial device is not connected.")
-            return None
+        self.send_command(f"get_baud:{motor_id}")
+        response = self._receive()
+        return response
 
     def get_motor_velocity(self, motor_id: (int or str)) -> float:
         """
@@ -303,7 +348,7 @@ class HandExo(object):
         """
         self.send_command(f"set_accel:{motor_id}:{acceleration}")
 
-    def get_motor_angle(self, motor_id: (int or str)) -> float:
+    def get_motor_angle(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the current relative angle of the specified motor.
 
@@ -315,12 +360,53 @@ class HandExo(object):
 
         """
         self.send_command(f"get_angle:{motor_id}")
-        response = self._receive()
+        raw = self._receive()
+        print(f"Raw return: {raw}")
+
+        # If the response is a digit, return it as a float
+        if raw and raw.isdigit() or raw.isdecimal():
+            return float(raw)
+
+        info = {}
+        if not raw:
+            return info
+
         try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+
+            # First line should have name, version, and motor count
+            header = lines[0]
+
+            # Parse each motor line
+            for line in lines[1:]:
+                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
+                if not motor_match:
+                    continue
+
+                motor_id = int(motor_match.group(1))
+                motor_data = motor_match.group(2)
+
+                # Parse the individual fields inside the { ... }
+                motor_info = {}
+                for part in motor_data.split(','):
+                    key_val = part.strip().split(":", 1)
+                    if len(key_val) != 2:
+                        continue
+                    key, val = key_val[0].strip(), key_val[1].strip()
+                    if key == "id":
+                        motor_info["id"] = int(val)
+                    elif key == "angle":
+                        motor_info["angle"] = float(val)
+                    else:
+                        motor_info[key] = val
+
+                info[f"motor_{motor_id}"] = motor_info
+
+            return info
+
+        except Exception as e:
+            print(f"[ERROR] Failed to parse info: {e}")
+            return {}
 
     def set_motor_angle(self, motor_id: (int or str), angle: float):
         """
@@ -340,7 +426,7 @@ class HandExo(object):
             cmd = f"set_angle:{int(motor_id)}:{angle}"
         self.send_command(cmd)
 
-    def get_absolute_motor_angle(self, motor_id: (int or str)) -> float:
+    def get_absolute_motor_angle(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the absolute angle of the specified motor.
 
@@ -352,12 +438,51 @@ class HandExo(object):
 
         """
         self.send_command(f"get_absangle:{motor_id}")
-        response = self._receive()
+        raw = self._receive()
+        # If the response is a digit, return it as a float
+        if raw and raw.isdigit() or raw.isdecimal():
+            return float(raw)
+
+        info = {}
+        if not raw:
+            return info
+
         try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+
+            # First line should have name, version, and motor count
+            header = lines[0]
+
+            # Parse each motor line
+            for line in lines[1:]:
+                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
+                if not motor_match:
+                    continue
+
+                motor_id = int(motor_match.group(1))
+                motor_data = motor_match.group(2)
+
+                # Parse the individual fields inside the { ... }
+                motor_info = {}
+                for part in motor_data.split(','):
+                    key_val = part.strip().split(":", 1)
+                    if len(key_val) != 2:
+                        continue
+                    key, val = key_val[0].strip(), key_val[1].strip()
+                    if key == "id":
+                        motor_info["id"] = int(val)
+                    elif key == "angle":
+                        motor_info["absolute_angle"] = float(val)
+                    else:
+                        motor_info[key] = val
+
+                info[f"motor_{motor_id}"] = motor_info
+
+            return info
+
+        except Exception as e:
+            print(f"[ERROR] Failed to parse info: {e}")
+            return {}
 
     def set_absolute_motor_angle(self, motor_id: (int or str), angle: float):
         """
@@ -377,7 +502,7 @@ class HandExo(object):
             cmd = f"set_absangle:{int(motor_id)}:{angle}"
         self.send_command(cmd)
 
-    def get_home(self, motor_id: (int or str)) -> float:
+    def get_home(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the home angle of the specified motor.
 
@@ -389,12 +514,63 @@ class HandExo(object):
 
         """
         self.send_command(f"get_home:{motor_id}")
-        response = self._receive()
+        raw = self._receive()
+        print(f"Raw return: {raw}")
+
+        # If the response is a digit, return it as a float
+        if raw and raw.isdigit():
+            return float(raw)
+
+        info = {}
+        if not raw:
+            return info
+
         try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+
+            # First line should have name, version, and motor count
+            header = lines[0]
+            name_match = re.search(r"Name:\s*([^\s]+)", header)
+            version_match = re.search(r"Version:\s*([^\s]+)", header)
+            motor_count_match = re.search(r"Number of Motors:\s*(\d+)", header)
+
+            if name_match:
+                info['name'] = name_match.group(1)
+            if version_match:
+                info['version'] = version_match.group(1)
+            if motor_count_match:
+                info['n_motors'] = int(motor_count_match.group(1))
+
+            # Parse each motor line
+            for line in lines[1:]:
+                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
+                if not motor_match:
+                    continue
+
+                motor_id = int(motor_match.group(1))
+                motor_data = motor_match.group(2)
+
+                # Parse the individual fields inside the { ... }
+                motor_info = {}
+                for part in motor_data.split(','):
+                    key_val = part.strip().split(":", 1)
+                    if len(key_val) != 2:
+                        continue
+                    key, val = key_val[0].strip(), key_val[1].strip()
+                    if key == "id":
+                        motor_info["id"] = int(val)
+                    elif key == "home":
+                        motor_info["angle"] = float(val)
+                    else:
+                        motor_info[key] = val
+
+                info[f"motor_{motor_id}"] = motor_info
+
+            return info
+
+        except Exception as e:
+            print(f"[ERROR] Failed to parse info: {e}")
+            return {}
 
     def set_home(self, motor_id: (int or str), home_angle: float):
         """
@@ -508,7 +684,7 @@ class HandExo(object):
                 print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
         return {}
 
-    def get_motor_limits(self, motor_id: (int or str)) -> tuple:
+    def get_motor_limits(self, motor_id: (int or str) = 'all') -> tuple:
         """
         Retrieves the limits for the specified motor, including minimum and maximum angles.
 
@@ -520,18 +696,63 @@ class HandExo(object):
 
         """
         self.send_command(f"get_motor_limits:{motor_id}")
-        response = self._receive() # Should get "Motor {id} limits:[{val},{val}]"
-        limits = None
-        if response:
+        raw = self._receive()  # Should get "Motor {id} limits:[{val},{val}]"
+
+        if motor_id == 'all':
+            info = {}
+            if not raw:
+                return info
+
             try:
-                parts = response.split(':')
-                if len(parts) == 3 and parts[0].startswith("Motor") and parts[1].strip() == "limits":
-                    limits = tuple(map(float, parts[2].strip('[]').split(',')))
-                else:
-                    print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            except (ValueError, IndexError):
-                print(f"[ERROR] Failed to parse limits for motor {motor_id}: {response}")
-        return limits if limits else (None, None)
+                lines = [line.strip() for line in raw.splitlines() if line.strip()]
+
+                # First line should have name, version, and motor count
+                header = lines[0]
+
+                # Parse each motor line
+                for line in lines[1:]:
+                    motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
+                    if not motor_match:
+                        continue
+
+                    motor_id = int(motor_match.group(1))
+                    motor_data = motor_match.group(2)
+
+                    # Parse the individual fields inside the { ... }
+                    motor_info = {}
+                    for part in motor_data.split(','):
+                        key_val = part.strip().split(":", 1)
+                        if len(key_val) != 2:
+                            continue
+                        key, val = key_val[0].strip(), key_val[1].strip()
+                        if key == "id":
+                            motor_info["id"] = int(val)
+                        elif key == "Limits":
+                            print(f"limits: {val}")
+                            motor_info["lower_limit"] = float(val.split(',')[0].strip('[]'))
+                            motor_info["upper_limit"] = float(val.split(',')[1].strip('[]'))
+                        else:
+                            motor_info[key] = val
+
+                    info[f"motor_{motor_id}"] = motor_info
+
+                return info
+
+            except Exception as e:
+                print(f"[ERROR] Failed to parse info: {e}")
+                return {}
+        else:
+            limits = None
+            if raw:
+                try:
+                    parts = raw.split(':')
+                    if len(parts) == 3 and parts[0].startswith("Motor") and parts[1].strip() == "limits":
+                        limits = tuple(map(float, parts[2].strip('[]').split(',')))
+                    else:
+                        print(f"[ERROR] Invalid response for motor {motor_id}: {raw}")
+                except (ValueError, IndexError):
+                    print(f"[ERROR] Failed to parse limits for motor {motor_id}: {raw}")
+            return limits if limits else (None, None)
 
     def set_motor_upper_limit(self, motor_id: (int or str), upper_limit: float):
         """
@@ -683,6 +904,19 @@ class HandExo(object):
         """
         self.send_command(f"set_gesture:{gesture}:{state}")
 
+    def set_gesture_state(self, state: str):
+        """
+        Sets the state of the current gesture for the exoskeleton.
+
+        Args:
+            state (str): Desired state of the gesture (e.g., "default", "active").
+
+        Returns:
+            None
+
+        """
+        self.send_command(f"set_gesture_state:{state}")
+
     def get_gesture_list(self) -> list:
         """
         Retrieves the list of available gestures for the exoskeleton.
@@ -728,16 +962,18 @@ class HandExo(object):
             None
 
         """
-        if self.device and self.device.is_open:
+        if self.device and self.device.is_connected():
             self.device.close()
-            self.logger("Serial connection closed.")
+            self.logger("Device connection closed.")
 
     def get_imu_data(self) -> dict:
         """
         Retrieves the IMU data from the exoskeleton.
 
         Receives a serial message with contents, as an example:
-            "Temp: 20.28 C; Accel: [-0.46, -0.42, 9.85]; Gyro: [-0.00, 0.01, -0.00];"
+            "Temp: 20.28 C
+             Accel: [-0.46, -0.42, 9.85]
+             Gyro: [-0.00, 0.01, -0.00]"
 
         Returns:
             dict: A dictionary containing IMU data (e.g., accelerometer, gyroscope, magnetometer).
@@ -748,16 +984,17 @@ class HandExo(object):
         imu_data = {}
         if response:
             try:
-                parts = response.split(';')
-                for part in parts:
-                    part = part.strip()
+                lines = [line.strip() for line in response.splitlines() if line.strip()]
+                for part in lines:
                     if part.startswith("Temp:"):
                         imu_data['temperature'] = float(part.split(':')[-1].strip().replace('C', ''))
                     elif part.startswith("Accel:"):
-                        accel_str = part.split(':')[-1].strip().strip('[]')
+                        accel_str = part.split(':')[-1].strip().replace(']', '').replace('[', '')
+                        accel_str = accel_str.replace('m/s^2', '')
                         imu_data['acceleration'] = list(map(float, accel_str.split(',')))
                     elif part.startswith("Gyro:"):
-                        gyro_str = part.split(':')[-1].strip().strip('[]')
+                        gyro_str = part.split(':')[-1].strip().replace(']', '').replace('[', '')
+                        gyro_str = gyro_str.replace('rad/s', '')
                         imu_data['gyroscope'] = list(map(float, gyro_str.split(',')))
                     # Add more parts as needed (e.g., magnetometer)
 
@@ -799,3 +1036,20 @@ class HandExo(object):
                 'pitch': float(pitch),
                 'yaw': float(yaw)
             }
+
+    def get_gesture_state(self):
+        """
+        Retrieves the current state of the gesture.
+
+        Returns:
+            str: Current gesture state (e.g., "default", "active").
+
+        """
+        self.send_command("get_gesture_state")
+        response = self._receive()
+        if response:
+            try:
+                return response.split(':')[-1].strip()
+            except IndexError:
+                print(f"[ERROR] Invalid response")
+        return ""

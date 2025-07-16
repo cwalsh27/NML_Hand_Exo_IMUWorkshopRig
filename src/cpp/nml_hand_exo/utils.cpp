@@ -23,12 +23,17 @@ void debugPrint(const String& msg) {
 
 void commandPrint(const String& msg) {
   // Prints out message to DEBUG/CMD serial port regardless of VERBOSE mode 
-  #if defined(DEBUG_SERIAL)
-    //DEBUG_SERIAL(msg);
-      DEBUG_SERIAL.println(msg);
+  #if defined(COMMAND_SERIAL)
+    // Need to print to all serial devices for data output
+    COMMAND_SERIAL.println(msg);
+    DEBUG_SERIAL.println(msg);
   #else
+    Serial2.println(msg);  // fallback
     Serial.println(msg);  // fallback
   #endif
+
+  // Print with debugPrint too
+  debugPrint(msg);
 }
 void initializeIMU(Adafruit_ISM330DHCX& imu) {
   if (!imu.begin_I2C()) {
@@ -168,7 +173,7 @@ void getIMUData(Adafruit_ISM330DHCX& imu) {
   }
   char buffer[128];
   snprintf(buffer, sizeof(buffer),
-           "Temp:%.2f C; Accel: [%.2f, %.2f, %.2f]; Gyro: [%.2f, %.2f, %.2f];",
+           "Temp:%.2f C; Accel: [%.2f, %.2f, %.2f] m/s^2; Gyro: [%.2f, %.2f, %.2f] rad/s;",
            temp.temperature,
            accel.acceleration.x, accel.acceleration.y, accel.acceleration.z,
            gyro.gyro.x, gyro.gyro.y, gyro.gyro.z);
@@ -236,51 +241,141 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
       if (id != -1) exo.enableTorque(id, false);
     }
 
-  } else if (cmd == "get_baud") {
-    id = getArgMotorID(exo, token, 1);
-    if (id != -1) {
-      uint32_t baud = exo.getBaudRate(id);  
-      commandPrint("Motor " + String(id) + " baud: " + String(baud));
+  } else if (cmd == "get_enable") {
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    bool status;
+    if (arg == "ALL") {
+      String info = "Motor Torque Status: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        status = exo.getTorqueEnabledStatus(id);;
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", enable: " + (status ? "true" : "false") + "};\n";
+      }
+      commandPrint(info);
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      if (id != -1) {
+          status = exo.getTorqueEnabledStatus(id);
+          commandPrint("Motor " + String(id) + " torque enabled: " + (status ? "true" : "false"));
+      }
     }
+
+  } else if (cmd == "get_baud") {
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    bool status;
+    if (arg == "ALL") {
+      String baudStr = "Baudrate: [";
+      for (int i = 0; i < exo.getMotorCount(); i++) {
+          uint32_t baud = exo.getBaudRate(i);  
+          baudStr += String(baud);
+          if (i < exo.getMotorCount() - 1) baudStr += ", ";
+      }
+      baudStr += "]";
+      commandPrint(baudStr);
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      if (id != -1) {
+        uint32_t baud = exo.getBaudRate(id);  
+        commandPrint("Motor " + String(id) + " baud: " + String(baud));
+      }
+    }
+
   } else if (cmd == "set_baud") {
     id = getArgMotorID(exo, token, 1);
     val = getArg(token, 2).toInt();
     if (id != -1) exo.setBaudRate(id, val);
 
   } else if (cmd == "get_vel") {
-    id = getArgMotorID(exo, token, 1);
-    if (id != -1) {
-      uint32_t vel = exo.getVelocityLimit(id);
-      commandPrint("Motor " + String(id) + " velocity: " + String(vel));
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    if (arg == "ALL") {
+      String info = "Motor velocity: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        uint32_t vel = exo.getVelocityLimit(id);
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", velocity: " + String(vel) + "};\n";
+      }
+      commandPrint(info);
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      if (id != -1) {
+        uint32_t vel = exo.getVelocityLimit(id);
+        commandPrint("Motor " + String(id) + " velocity: " + String(vel));
+      }
     }
 
   } else if (cmd == "set_vel") {
-    id = getArgMotorID(exo, token, 1);
-    val = getArg(token, 2).toInt();
-    if (id != -1) exo.setVelocityLimit(id, val);
+    // Set velocity limit for a motor or all motors, Fast == 300 rpm, slow = 10rpm
+    String arg = getArg(token, 1);  // local copy
+    arg.trim();
+    arg.toUpperCase();
+    if (arg == "ALL") {
+        for (int i = 0; i < exo.getMotorCount(); i++) {
+            id = exo.getMotorIDByIndex(i);
+            val = getArg(token, 2).toInt();
+            exo.setVelocityLimit(id, val);
+        }
+        debugPrint("Set velocity limit for all motors to " + String(val));
+    } else {
+        id = getArgMotorID(exo, token, 1);
+        val = getArg(token, 2).toInt();
+        if (id != -1) exo.setVelocityLimit(id, val);
+        debugPrint("Set velocity limit for motor " + String(id) + " to " + String(val));
+    }
 
   } else if (cmd == "get_acc") {
-    id = exo.getMotorID(getArg(token, 1));
-    if (id != -1) {
-      int acc = exo.getAccelerationLimit(id);
-      commandPrint("Motor " + String(id) + " acceleration: " + String(acc));
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    if (arg == "ALL") {
+      String info = "Motor acceleration: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        int acc = exo.getAccelerationLimit(id);
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", Acceleration: " + String(acc) + "};\n";
+      }
+      commandPrint(info);
+    } else {
+      id = exo.getMotorID(getArg(token, 1));
+      if (id != -1) {
+        int acc = exo.getAccelerationLimit(id);
+        commandPrint("Motor " + String(id) + " acceleration: " + String(acc));
+      }
     }
 
   } else if (cmd == "set_acc") {
-    id = getArgMotorID(exo, token, 1);
-    val = getArg(token, 2).toInt();
-    if (id != -1) exo.setAccelerationLimit(id, val);
-
-  } else if (cmd == "get_angle") {
     String arg = getArg(token, 1);  // local copy
     arg.trim();
     arg.toUpperCase();
     if (arg == "ALL") {
       for (int i = 0; i < exo.getMotorCount(); i++) {
         id = exo.getMotorIDByIndex(i);
-        float val = exo.getRelativeAngle(id);
-        commandPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") relative angle: " + String(val, 2));
+        val = getArg(token, 2).toInt();
+        exo.setAccelerationLimit(id, val);
       }
+      debugPrint("Set acceleration limit for all motors to " + String(val));
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      val = getArg(token, 2).toInt();
+      if (id != -1) exo.setAccelerationLimit(id, val);
+    }
+
+  } else if (cmd == "get_angle") {
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    if (arg == "ALL") {
+      String info = "Motor angles: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        float val = exo.getRelativeAngle(id);
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", Angle: " + String(val) + "};\n";
+      }
+      commandPrint(info);
     } else {
       id = getArgMotorID(exo, token, 1);
       if (id != -1) {
@@ -296,14 +391,16 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
 
   } else if (cmd == "get_absangle") {
     String arg = getArg(token, 1);  // local copy
-    arg.trim();
-    arg.toUpperCase();
+    arg.trim(); arg.toUpperCase();
     if (arg == "ALL") {
-      for (int i = 0; i < exo.getMotorCount(); i++) {
-        id = exo.getMotorIDByIndex(i);
+      String info = "Motor absolute angles: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
         float val = exo.getAbsoluteAngle(id);
-        commandPrint("[" + exo.getMotorNameByID(id) + "] (ID " + String(id) + ") absolute angle: " + String(val, 2));
-       }
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", Absolute Angle: " + String(val) + "};\n";
+      }
+      commandPrint(info);
     } else {
       id = getArgMotorID(exo, token, 1);
       if (id != -1) {
@@ -318,10 +415,24 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     if (id != -1) exo.setAbsoluteAngle(id, val);
 
   } else if (cmd == "get_home") {
-    id = getArgMotorID(exo, token, 1);
-    if (id != -1) {
-      float zero = exo.getZeroAngle(id);
-      commandPrint("Motor " + String(id) + " zero angle: " + String(zero, 2));
+    String arg = getArg(token, 1);  // local copy
+    arg.trim();
+    arg.toUpperCase();
+    if (arg == "ALL") {
+      String info = "Home Status: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        float home_angle = exo.getZeroAngle(id);
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", home: " + String(home_angle, 2) + "};\n";
+      }
+      commandPrint(info);
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      if (id != -1) {
+        float zero = exo.getZeroAngle(id);
+        commandPrint("Motor " + String(id) + " zero angle: " + String(zero, 2));
+      }
     }
 
   } else if (cmd == "set_home") {
@@ -350,16 +461,41 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
 
 
   } else if (cmd == "get_torque") {
-    id = getArgMotorID(exo, token, 1);
-    if (id != -1) {
-      float torque = exo.getTorque(id);
-      commandPrint("Motor " + String(id) + " torque: " + String(torque, 4) + " N·m");
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    if (arg == "ALL") {
+      String info = "Motor Torque: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        float torque = exo.getTorque(id);
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", Torque: " + String(val) + "};\n";
+      }
+      commandPrint(info);
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      if (id != -1) {
+        float torque = exo.getTorque(id);
+        commandPrint("Motor " + String(id) + " torque: " + String(torque, 4) + " N·m");
+      }
     }
 
   } else if (cmd == "get_motor_limits") {
-    id = getArgMotorID(exo, token, 1);
-    if (id != -1) {
-      commandPrint("Motor " + String(id) + " limits: " + exo.getMotorLimits(id));
+    String arg = getArg(token, 1);  // local copy
+    arg.trim(); arg.toUpperCase();
+    if (arg == "ALL") {
+      String info = "Motor Limits: ;\n";
+      for (int i = 0; i < exo.getMotorCount(); ++i) {
+        uint8_t id = exo.getMotorIDByIndex(i);
+        info += "Motor " + String(i) + ": {name: " + exo.getMotorNameByID(id) + ", id: " + String(id) +
+            ", Limits: " + exo.getMotorLimits(id) + "};\n";
+      }
+      commandPrint(info);
+    } else {
+      id = getArgMotorID(exo, token, 1);
+      if (id != -1) {
+        commandPrint("Motor " + String(id) + " limits: " + exo.getMotorLimits(id));
+      }
     }
 
   } else if (cmd == "set_upper_limit") {
@@ -468,6 +604,10 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
       debugPrint("Current mode FREE. Change mode to cycle gestures");
     }
 
+  } else if (cmd == "get_gesture_state") {
+    String current_gesture = gc.getCurrentGestureState();
+    commandPrint("Current gesture state: " + current_gesture);
+
   } else if (cmd == "cycle_gesture_state") {
     debugPrint("[GestureController] cycle gesture button pressed");
     String exo_mode = exo.getExoOperatingMode();
@@ -477,19 +617,25 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
       debugPrint("Current mode FREE. Change mode to cycle gesture states");
     }
 
+  } else if (cmd == "set_gesture_state") { 
+    String stateStr = getArg(token, 1);
+    gc.executeCurrentGestureNewState(stateStr);
+
   } else if (cmd == "calibrate_exo") {
-    String mode = getArg(token, 1);
-    bool timed = (mode == "timed");
-    float duration = getArg(token, 2).toFloat();
-    if (duration <=0 ) duration = 10;
-    exo.beginCalibration(timed, duration);
+    debugPrint("Command not supported yet");
+    //String mode = getArg(token, 1);
+    //bool timed = (mode == "timed");
+    //float duration = getArg(token, 2).toFloat();
+    //if (duration <=0 ) duration = 10;
+    //exo.beginCalibration(timed, duration);
 
   } else if (cmd == "version") {
+    // Print the current version of the exo device
     commandPrint("Exo Device Version: " + String(NMLHandExo::VERSION));
 
   } else if (cmd == "info") {
     debugPrint("Device Info: ");
-    exo.printDeviceInfo(*debugStream); 
+    commandPrint(exo.getDeviceInfo());
 
   } else if (cmd == "get_imu") {
     getIMUData(imu);
@@ -506,12 +652,13 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     commandPrint(F(" version             |                      | // Get current software version"));
     commandPrint(F(" enable              |  ID/NAME             | // Enable torque for motor"));
     commandPrint(F(" disable             |  ID/NAME             | // Disable torque for motor"));
+    commandPrint(F(" get_enable          |  ID/NAME             | // Get the torque enable status of the motor"));
     commandPrint(F(" get_baud            |  ID/NAME             | // Get baud rate for motor"));
     commandPrint(F(" set_baud            |  ID/NAME:VALUE       | // Set baud rate for motor"));
     commandPrint(F(" get_vel             |  ID/NAME             | // Get current velocity profile for motor"));
-    commandPrint(F(" set_vel             |  ID/NAME:VALUE       | // Set velocity profile for motor"));
+    commandPrint(F(" set_vel             |  ID/NAME/ALL:VALUE   | // Set velocity profile for motor"));
     commandPrint(F(" get_acc             |  ID/NAME             | // Get current acceleration profile for motor"));
-    commandPrint(F(" set_acc             |  ID/NAME:VALUE       | // Set acceleration limit for motor"));
+    commandPrint(F(" set_acc             |  ID/NAME/ALL:VALUE   | // Set acceleration limit for motor"));
     commandPrint(F(" get_home            |  ID/NAME             | // Get stored zero position"));
     commandPrint(F(" set_home            |  ID/NAME:VALUE       | // Set current position as new zero angle"));
     commandPrint(F(" get_angle           |  ID/NAME             | // Get relative motor angle"));
@@ -533,6 +680,8 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     commandPrint(F(" gesture_list        |                      | // Get gestures in library"));
     commandPrint(F(" set_gesture         |  NAME:VALUE          | // Set exo gesture"));
     commandPrint(F(" get_gesture         |                      | // Get exo gesture"));
+    commandPrint(F(" set_gesture_state   |  NAME:VALUE          | // Set exo gesture state"));
+    commandPrint(F(" get_gesture_state   |                      | // Get exo gesture state"));
     commandPrint(F(" cycle_gesture       |                      | // Executes the next gesture in the library"));
     commandPrint(F(" cycle_gesture_state |                      | // Cycles the next gesture state"));
     commandPrint(F(" calibrate_exo       |  VALUE:VALUE         | // start the calibration routine for the exo"));
