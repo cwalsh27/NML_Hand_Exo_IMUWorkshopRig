@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-from nml_hand_exo.hand_exo import HandExo  # Assumes hand_exo.py is in the same directory
+from nml_hand_exo.interface import HandExo, SerialComm, TCPComm  # Assumes hand_exo.py is in the same directory
 
 
 class HandExoGUI(QWidget):

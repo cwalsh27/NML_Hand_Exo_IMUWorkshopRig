@@ -57,14 +57,17 @@ void setup() {
   exo.initializeMotors();       // Initialize motors and set them to "current position" mode
   // exo.resetAllZeros();       // (Optional) Defines the current position of the motors as the home position
   exo.setMotorNames(MOTOR_NAMES);
-  exo.setModeSwitchButton(MODESWITCH_PIN);
+  //exo.setModeSwitchButton(MODESWITCH_PIN);
 
   // Default state is button control
   exo.setExoOperatingMode(DEFAULT_EXO_MODE);
 
   // Setup gesture controller
-  gc.setCycleGestureButton(CYCLE_GESTURE_PIN);
-  gc.setGestureStateSwitchButton(GESTURE_STATE_PIN);
+  //gc.setCycleGestureButton(CYCLE_GESTURE_PIN);
+  gc.setGestureStateSwitchButton(CYCLE_GESTURE_STATE_PIN);
+  gc.setGestureButtonCallback("grasp", GESTURE_GRASP_BUTTON_PIN);
+  gc.setGestureButtonCallback("keygrip", GESTURE_KEYGRIP_BUTTON_PIN);
+  gc.setGestureButtonCallback("pinch", GESTURE_PINCH_BUTTON_PIN);
 
   // Flash LEDs to let user know system ready to go
   flashPin(STATUS_LED_PIN, 100, 4);

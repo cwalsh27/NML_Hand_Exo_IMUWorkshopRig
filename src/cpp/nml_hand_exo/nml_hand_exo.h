@@ -262,6 +262,11 @@ class NMLHandExo {
     /// @return Raw current value.
     int16_t getCurrent(uint8_t id);
 
+    /// @brief Get the current limit in mA for a motor.
+    /// @param id Motor ID.
+    /// @return Current limit in milliamps.
+    int16_t getCurrentLimit(uint8_t id);
+
     /// @brief Set the current limit for a motor.
     /// @param id Motor ID.
     /// @param current_mA Current limit in milliamps.
@@ -355,7 +360,7 @@ class NMLHandExo {
     String getMotorMode();
 
     /// @brief Current software version.
-    static constexpr const char* VERSION = "0.2.10";
+    static constexpr const char* VERSION = "0.2.11";
 
   private:
     /// @brief Dynamixel2Arduino object for motor communication.
@@ -414,6 +419,9 @@ class NMLHandExo {
 
     /// @brief Duration for calibration in milliseconds.
     unsigned long calibrationDuration;
+
+
+    bool flipMotor_[6] = {false, false, false, true, false, true}; // Flips for motors 3 and 5
 
 };
 

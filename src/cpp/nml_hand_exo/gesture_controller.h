@@ -5,6 +5,14 @@
 #include "nml_hand_exo.h"
 #include "gesture_library.h"
 
+/// @brief Structure to hold gesture button information
+struct GestureButton {
+    String gestureName;
+    int pin;
+    int lastButtonState;
+    int buttonState;
+    unsigned long lastDebounceTime;
+};
 
 /// @brief Class to manage predefined gestures and apply them to the NMLHandExo device.
 class GestureController {
@@ -34,6 +42,11 @@ public:
     /// @brief Assign pin for gesture cycling switch interrupt.
     /// @param pin Interrupt pin.
     void setCycleGestureButton(const int pin);
+
+    /// @brief Assign a button pin to directly activate a named gesture.
+    /// @param gesture Name of the gesture (must exist in gestureLibrary)
+    /// @param pin Pin number for the button
+    void setGestureButtonCallback(const String& gesture, const int pin);
 
     /// @brief Check if the gesture state button was pressed.
     /// @return button state
@@ -103,6 +116,12 @@ private:
 
     /// @brief Last debounce time for mode switch button
     unsigned long lastCycleGestureDebounceTime = 0;
+
+    /// @brief Array of gesture buttons
+    GestureButton gestureButtons_[MAX_GESTURE_BUTTONS];
+
+    /// @brief Number of gesture buttons configured
+    int gestureButtonCount_ = 0;
 };
 
 #endif  // GESTURE_CONTROLLER_H
