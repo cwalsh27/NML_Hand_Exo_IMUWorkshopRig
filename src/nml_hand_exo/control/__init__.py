@@ -1,1 +1,2 @@
-from ._rms_gesture_trigger import RMSGestureTrigger
+from ._trigger import StateTriggerRMS, EMGClassifierTrigger
+

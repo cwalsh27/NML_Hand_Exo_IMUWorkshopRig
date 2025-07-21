@@ -133,26 +133,31 @@ def downsample(emg_data, sampling_rate, target_fs=1000):
     return downsampled_data
 
 
-def common_average_reference(emg_data, verbose=False):
+def common_average_reference(emg_data, ignore_channels=None):
     """
     Applies Common Average Referencing (CAR) to the multi-channel EMG data.
 
     Parameters:
         emg_data: 2D numpy array of shape (num_channels, num_samples).
+        ignore_channels: List of channels to ignore in CAR calculation (optional).
 
     Returns:
         car_data: 2D numpy array after applying CAR (same shape as input).
+
     """
-    if verbose:
-        print("| Subtracting common average reference")
-        print("Shape of input data:", emg_data.shape)
+    bad_channels = []
+    if ignore_channels is not None:
+        bad_channels = ignore_channels
+
+    good_channels = [i for i in range(emg_data.shape[0]) if i not in bad_channels]
+    if not good_channels:
+        raise ValueError("No good channels available for Common Average Referencing.")
+
     # Compute the common average (mean across all channels at each time point)
-    common_avg = np.mean(emg_data, axis=0)  # Shape: (num_samples,)
+    mean_signal = np.mean(emg_data[good_channels, :], axis=0)  # Shape: (n_samples,)
 
     # Subtract the common average from each channel
-    car_data = emg_data - common_avg  # Broadcast subtraction across channels
-
-    return car_data
+    return emg_data - mean_signal  # Broadcast subtraction across channels
 
 
 def envelope_extraction(data, method='hilbert'):

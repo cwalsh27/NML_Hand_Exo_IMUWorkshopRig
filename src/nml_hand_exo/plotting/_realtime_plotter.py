@@ -1,264 +1,131 @@
-# import matplotlib
-# matplotlib.use('Qt5Agg')  # Use a faster interactive backend
-# import matplotlib.pyplot as plt
-# from matplotlib.widgets import Slider
-# from matplotlib.animation import FuncAnimation
-
 import numpy as np
-from scipy.signal import iirnotch, butter, lfilter, lfilter_zi
-from collections import deque
-
 from PyQt5 import QtWidgets, QtCore
 import pyqtgraph as pg
+from PyQt5.QtGui import QDoubleValidator
 
-class RealtimePlotter:
-    def __init__(self, client, sampling_rate=2000.0, plotting_interval=1.0,
-                 samples_per_fetch=50, channels_to_plot=None, apply_filters=True, downsample_factor=1):
+from nml_hand_exo.processing import RealtimeEMGFilter
+
+
+class StackedPlotter(QtWidgets.QMainWindow):
+    def __init__(self, client, channels_to_plot=None, interval_ms=30, buffer_secs=2, downsample_factor=1,
+                 enable_car=False, enable_bandpass=False, enable_notch=False):
+        super().__init__()
+        self.setWindowTitle("Real-time Stacked-View EMG Plotter")
+
         self.client = client
-        self.sampling_rate = sampling_rate
-        self.plotting_interval = plotting_interval
-        self.samples_per_fetch = samples_per_fetch
-        self.apply_filters = apply_filters
+        self.sampling_rate = client.sampling_rate
+        self.n_channels_total = client.n_channels
+        self.interval_ms = interval_ms
+        self.buffer_secs = buffer_secs
         self.downsample_factor = downsample_factor
+        self.enable_car = enable_car
+        self.enable_bandpass = enable_bandpass
+        self.enable_notch = enable_notch
+        self.channel_height = 150
+        self.broken_ch_std_threshold = 300  # std
 
-        self.buffer_size = int(self.plotting_interval * self.sampling_rate)
-        self.x = np.linspace(0, self.plotting_interval, self.buffer_size)
-
-        # Define which channels to plot
-        if channels_to_plot is None:
-            self.channels_to_plot = [0]  # default to channel 0
+        # Channel setup
+        if channels_to_plot == "all":
+            self.channels_to_plot = list(range(self.n_channels_total))
         else:
-            self.channels_to_plot = channels_to_plot
+            self.channels_to_plot = channels_to_plot or [0]
 
         self.n_channels = len(self.channels_to_plot)
+        self.buffer_size = int(buffer_secs * self.sampling_rate // self.downsample_factor)
+        self.buffers = [np.zeros(self.buffer_size, dtype=np.float32) for _ in range(self.n_channels)]
+        self.x = np.linspace(-buffer_secs, 0, self.buffer_size)
 
-        # Use deque for efficient rolling buffer updates
-        self.ydata = {
-            ch: deque(np.zeros(self.buffer_size, dtype=np.float32), maxlen=self.buffer_size)
-            for ch in self.channels_to_plot
-        }
+        # Initialize filter
+        self.emg_filter = RealtimeEMGFilter(
+            sampling_rate=self.sampling_rate,
+            n_channels=self.n_channels,
+            enable_car=enable_car,
+            enable_bandpass=enable_bandpass,
+            enable_notch=enable_notch,
+        )
 
-        # Track last processed sample count for incremental updates
-        self.last_processed_samples = 0
-
-        if self.apply_filters:
-            self.init_filters()
-        self.init_plot()
-
-    # def init_filters(self):
-    #     """Initialize real-time filters"""
-    #     notch_freq = 60.0
-    #     Q = 30.0
-    #     self.notch_b, self.notch_a = iirnotch(notch_freq, Q, fs=self.sampling_rate)
-    #
-    #     lowcut = 10.0
-    #     highcut = 500.0
-    #     nyq = 0.5 * self.sampling_rate
-    #     self.bp_b, self.bp_a = butter(2, [lowcut / nyq, highcut / nyq], btype='band')
-    #
-    #     # Initialize filter states for each channel
-    #     self.notch_zi = {ch: lfilter_zi(self.notch_b, self.notch_a) for ch in self.channels_to_plot}
-    #     self.bp_zi = {ch: lfilter_zi(self.bp_b, self.bp_a) for ch in self.channels_to_plot}
-    #
-    # def apply_realtime_filters(self, signal, channel):
-    #     """ Apply notch and bandpass filters to the signal """
-    #     if not self.apply_filters or len(signal) == 0:
-    #         return signal
-    #
-    #     # Apply notch filter
-    #     filtered_signal, self.notch_zi[channel] = lfilter(
-    #         self.notch_b, self.notch_a, signal, zi=self.notch_zi[channel]
-    #     )
-    #
-    #     # Apply bandpass filter
-    #     filtered_signal, self.bp_zi[channel] = lfilter(
-    #         self.bp_b, self.bp_a, filtered_signal, zi=self.bp_zi[channel]
-    #     )
-    #
-    #     return filtered_signal
-    #
-    # def init_plot(self):
-    #     self.figure, self.axes = plt.subplots(
-    #         self.n_channels, 1,
-    #         figsize=(10, 2 * self.n_channels),
-    #         sharex=True
-    #     )
-    #     if self.n_channels == 1:
-    #         self.axes = [self.axes]
-    #
-    #     self.hl = []
-    #     colors = ['#d92eab', '#2ed9a3', '#d9a32e', '#2e5dd9', '#d92e2e', '#2ed95d']
-    #
-    #     for i, (ax, ch) in enumerate(zip(self.axes, self.channels_to_plot)):
-    #         ax.set_xlim(0, self.plotting_interval)
-    #         ax.set_ylim(-200, 200)
-    #         ax.set_ylabel(f"Ch {ch} (μV)", fontsize=10)
-    #         ax.set_facecolor('#001230')
-    #         ax.grid(True, alpha=0.3, color='white', linestyle='--', linewidth=0.5)
-    #
-    #         # line, = ax.plot(self.x, self.ydata[ch], lw=0.5, color='#d92eab')
-    #         # self.hl.append(line)
-    #         # Use different colors for different channels
-    #         color = colors[i % len(colors)]
-    #         line, = ax.plot(
-    #             self.x[::self.downsample_factor],  # downsampled x
-    #             list(self.ydata[ch])[::self.downsample_factor],  # downsampled y
-    #             lw=0.8,
-    #             color=color,
-    #             alpha=0.9
-    #         )
-    #         self.hl.append(line)
-    #
-    #     self.axes[-1].set_xlabel("Time (s)", fontsize=10)
-    #     self.figure.suptitle("Realtime EMG Signal", fontsize=14, fontweight='bold')
-    #     plt.subplots_adjust(hspace=0.4, bottom=0.2)
-    #
-    #     # Slider to control y-axis range
-    #     axcolor = '#f0f0f0'
-    #     axylim = plt.axes([0.1, 0.02, 0.65, 0.03], facecolor=axcolor)
-    #     self.sylim = Slider(axylim, 'Y range (μV)', 10, 1000, valinit=200, valstep=10, valfmt='%d')
-    #
-    #     def update_slider(val):
-    #         for ax in self.axes:
-    #             ax.set_ylim(-val, val)
-    #         self.figure.canvas.draw_idle()
-    #
-    #     self.sylim.on_changed(update_slider)
-    #
-    #     # Connection status text
-    #     self.status_text = self.figure.text(
-    #         0.7, 0.02,
-    #         "Status: Connecting...",
-    #         fontsize=10,
-    #         bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
-    #         animated=True,
-    #     )
-    #
-    #     self.anim = FuncAnimation(
-    #         self.figure, self.update,
-    #         interval=100,
-    #         blit=False,
-    #         cache_frame_data=False,
-    #     )
-    #
-    # def _init_lines(self):
-    #     return self.hl + [self.status_text]
-    #
-    # def update(self, frame):
-    #     """Update the plot with new data"""
-    #     try:
-    #         # Get connection status
-    #         status = self.client.get_connection_status()
-    #         if status['connected']:
-    #             status_text = f"Connected | Samples: {status['total_samples']}"
-    #             self.status_text.set_bbox(dict(boxstyle="round,pad=0.3", facecolor="green", alpha=0.7))
-    #         else:
-    #             status_text = f"Reconnecting...({status['reconnect_attempts']}/5)"
-    #             self.status_text.set_bbox(dict(boxstyle="round,pad=0.3", facecolor="red", alpha=0.7))
-    #
-    #         self.status_text.set_text(status_text)
-    #
-    #         if not status['connected'] or status['total_samples'] == 0:
-    #             return self.hl + [self.status_text]
-    #
-    #         # Get latest window of data
-    #         window_ms = min(200, int(self.plotting_interval * 1000))  # Get recent data
-    #         window = self.client.get_latest_window(window_ms)
-    #
-    #         if window.shape[1] == 0:
-    #             return self.hl + [self.status_text]
-    #
-    #         # Process each channel
-    #         for i, ch in enumerate(self.channels_to_plot):
-    #             if ch >= window.shape[0]:
-    #                 continue
-    #
-    #             new_samples = window[ch, :]
-    #             if len(new_samples) > 0:
-    #                 if self.apply_filters and len(new_samples) >= 5:
-    #                     filtered_samples = self.apply_realtime_filters(new_samples, ch)
-    #                 else:
-    #                     filtered_samples = new_samples
-    #
-    #                 # Update rolling buffer
-    #                 self.ydata[ch].extend(filtered_samples)
-    #
-    #                 # Downsample the data for plotting
-    #                 downsampled = list(self.ydata[ch])[::self.downsample_factor]
-    #
-    #                 # Update plot data
-    #                 self.hl[i].set_data(self.x[::self.downsample_factor], downsampled)
-    #
-    #         return self.hl + [self.status_text]
-    #
-    #     except Exception as e:
-    #         print(f"[Plot Update Error] {e}")
-    #         self.status_text.set(text="Error: " + str(e))
-    #         self.status_text.set_bbox(dict(boxstyle="round,pad=0.3", facecolor="red", alpha=0.7))
-    #         return self.hl + [self.status_text]
-    #
-    # def toggle_filters(self):
-    #     """Toggle filter application on/off"""
-    #     self.apply_filters = not self.apply_filters
-    #     if self.apply_filters:
-    #         self.init_filters()  # Reinitialize filter states
-    #     print(f"Filters {'enabled' if self.apply_filters else 'disabled'}")
-    #
-    # def save_current_view(self, filename="emg_snapshot.png"):
-    #     """Save current plot view to file"""
-    #     try:
-    #         self.figure.savefig(filename, dpi=300, bbox_inches='tight')
-    #         print(f"Plot saved as {filename}")
-    #     except Exception as e:
-    #         print(f"Failed to save plot: {e}")
-    #
-    # def run(self):
-    #     """Start the real-time plotter"""
-    #     if not self.client.streaming:
-    #         self.client.start_streaming()
-    #         auto_started = True
-    #     else:
-    #         auto_started = False
-    #
-    #     try:
-    #         plt.show()
-    #     finally:
-    #         if auto_started:
-    #             self.client.stop_streaming()
-
-
-class PyQtGraphRealtimePlotter(QtWidgets.QMainWindow):
-    def __init__(self, client, channels_to_plot=None, interval_ms=30, buffer_secs=2, sampling_rate=1000):
-        super().__init__()
-        self.client = client
-        self.setWindowTitle("Real-time EMG Plotter (PyQtGraph)")
-        self.plot_widget = pg.GraphicsLayoutWidget()
-        self.setCentralWidget(self.plot_widget)
-
-        self.interval_ms = interval_ms
-        self.buffer_size = int(buffer_secs * sampling_rate)
-        self.sampling_rate = sampling_rate
+        self.init_ui()
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
 
-        if channels_to_plot is None:
-            self.channels_to_plot = [0]
-        else:
-            self.channels_to_plot = channels_to_plot
+    def init_ui(self):
+        main_widget = QtWidgets.QWidget()
+        main_layout = QtWidgets.QHBoxLayout(main_widget)
+        self.setCentralWidget(main_widget)
 
-        self.n_channels = len(self.channels_to_plot)
+        # Scrollable plot layout
+        scroll_area = QtWidgets.QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        plot_container = QtWidgets.QWidget()
+        self.plot_layout = QtWidgets.QVBoxLayout(plot_container)
+        scroll_area.setWidget(plot_container)
+        main_layout.addWidget(scroll_area, stretch=5)
+
+        # Curves and plots
         self.curves = []
-        self.buffers = []
-        self.x = np.linspace(-buffer_secs, 0, self.buffer_size)
-
+        self.plot_widgets = []
         for i in range(self.n_channels):
-            p = self.plot_widget.addPlot(row=i, col=0)
-            p.setYRange(-200, 200)
-            p.showGrid(x=True, y=True)
-            p.setLabel('left', f'Ch {self.channels_to_plot[i]} (μV)')
-            curve = p.plot(pen=pg.mkPen(color=pg.intColor(i), width=1))
+            pw = pg.PlotWidget()
+            pw.setMaximumHeight(self.channel_height)
+            pw.setYRange(-200, 200)
+            pw.setMouseEnabled(x=False, y=False)
+            pw.setMenuEnabled(False)
+            pw.showGrid(x=True, y=True)
+            if i < self.n_channels - 1:
+                pw.hideAxis('bottom')
+            pw.getPlotItem().getAxis('left').setWidth(50)  # Allocate label width
+            pw.setLabel('left', f'Ch {self.channels_to_plot[i]} (μV)', **{'color': '#000', 'font-size': '9pt'})
+            curve = pw.plot(pen=pg.mkPen(color=pg.intColor(i), width=1))
             self.curves.append(curve)
-            self.buffers.append(np.zeros(self.buffer_size, dtype=np.float32))
+            self.plot_widgets.append(pw)
+            self.plot_layout.addWidget(pw)
+
+        # Control panel
+        self.ctrl_panel = QtWidgets.QGroupBox("Controls")
+        ctrl_layout = QtWidgets.QVBoxLayout()
+
+        self.car_checkbox = QtWidgets.QCheckBox("CAR Filter")
+        self.bandpass_checkbox = QtWidgets.QCheckBox("Bandpass Filter")
+        self.notch_checkbox = QtWidgets.QCheckBox("Notch Filter")
+
+        ctrl_layout.addWidget(self.car_checkbox)
+        ctrl_layout.addWidget(self.bandpass_checkbox)
+        ctrl_layout.addWidget(self.notch_checkbox)
+
+        self.low_cut_input = QtWidgets.QLineEdit("10")
+        self.high_cut_input = QtWidgets.QLineEdit("500")
+        for box in [self.low_cut_input, self.high_cut_input]:
+            box.setValidator(QDoubleValidator(0.0, self.sampling_rate / 2, 2))
+
+        ctrl_layout.addWidget(QtWidgets.QLabel("Bandpass Low Cut (Hz):"))
+        ctrl_layout.addWidget(self.low_cut_input)
+        ctrl_layout.addWidget(QtWidgets.QLabel("Bandpass High Cut (Hz):"))
+        ctrl_layout.addWidget(self.high_cut_input)
+
+        # Connect filter toggles
+        self.car_checkbox.stateChanged.connect(self.update_filter_settings)
+        self.bandpass_checkbox.stateChanged.connect(self.update_filter_settings)
+        self.notch_checkbox.stateChanged.connect(self.update_filter_settings)
+        self.low_cut_input.textChanged.connect(self.update_filter_settings)
+        self.high_cut_input.textChanged.connect(self.update_filter_settings)
+
+        ctrl_layout.addStretch(1)
+        self.ctrl_panel.setLayout(ctrl_layout)
+        main_layout.addWidget(self.ctrl_panel, stretch=1)
+
+        self.resize(900, 600)
+
+    def update_filter_settings(self):
+        try:
+            low = float(self.low_cut_input.text())
+            high = float(self.high_cut_input.text())
+            self.emg_filter.set_bandpass(low, high)
+        except ValueError:
+            pass
+
+        self.emg_filter.toggle_car(self.car_checkbox.isChecked())
+        self.emg_filter.toggle_notch(self.notch_checkbox.isChecked())
+        self.emg_filter.toggle_bandpass(self.bandpass_checkbox.isChecked())
 
     def start(self):
         self.client.start_streaming()
@@ -267,10 +134,15 @@ class PyQtGraphRealtimePlotter(QtWidgets.QMainWindow):
 
     def update_plot(self):
         window = self.client.get_latest_window(window_ms=self.interval_ms)
+        if window is None or window.shape[1] == 0:
+            return
+
+        # Extract selected channels and filter
+        data = window[self.channels_to_plot]
+        filtered = self.emg_filter.update(data)
+
         for i, ch in enumerate(self.channels_to_plot):
-            if ch >= window.shape[0]:
-                continue
-            new_data = window[ch]
+            new_data = filtered[i][::self.downsample_factor]
             if new_data.shape[0] > 0:
                 self.buffers[i] = np.roll(self.buffers[i], -len(new_data))
                 self.buffers[i][-len(new_data):] = new_data
