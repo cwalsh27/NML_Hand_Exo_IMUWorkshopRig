@@ -116,6 +116,10 @@ NMLHandExo::NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointL
       currentLimits_[i] = MOTOR_CURRENT_LIMIT; // default 200 mA or whatever safe default
   }
 
+  bool flips[6] = {false, false, false, true, false, true};
+  memcpy(flipMotor_, flips, sizeof(flips));
+
+
   // If jointLimits_, zeroOffsets_, currentLimits_ were dynamically allocated, make sure to add a destructor.
 }
 // ====================================================================================
@@ -225,24 +229,27 @@ void NMLHandExo::resetAllZeros() {
 String NMLHandExo::getDeviceInfo() {
 
     // Need to return a single string with all the information
-    String info = "Name: NMLHandExo;\n";
-    info += "Version: " + String(VERSION) + ";\n";
-    info += "Number of Motors: " + String(numMotors_) + ";\n";
+    String info = "Name: NMLHandExo\n";
+    info += "Version: " + String(VERSION) + "\n";
+    info += "Number of Motors: " + String(numMotors_) + "\n";
     for (int i = 0; i < numMotors_; ++i) {
-      const char* name = getMotorNameByID(motorIds_[i]).c_str();
-      float angle = getRelativeAngle(motorIds_[i]);
+
+      uint8_t id = getMotorIDByIndex(i);
+      String name = getMotorNameByID(id);
+      float angle = getRelativeAngle(id);
       float minLimit = jointLimits_[i][0];
       float maxLimit = jointLimits_[i][1];
-      float torque = getTorque(motorIds_[i]);
-      bool isEnabled = getTorqueEnabledStatus(motorIds_[i]);
+      float torque = getTorque(id);
+      bool isEnabled = getTorqueEnabledStatus(id);
 
       info += "Motor " + String(i) + ": {name: " + String(name) +
-            ", id: " + String(motorIds_[i]) +
+            ", id: " + String(id) +
             ", angle: " + String(angle, 2) +
             ", limits: [" + String(minLimit, 2) + ", " + String(maxLimit, 2) + "]" +
             ", torque: " + String(torque, 2) +
-            ", enabled: " + (isEnabled ? "true" : "false") + "};\n";
+            ", enabled: " + (isEnabled ? "true" : "false") + "}\n";
       }
+    info += ";";
     return info;
 }
 
@@ -416,6 +423,12 @@ float NMLHandExo::getRelativeAngle(uint8_t id) {
 
   float abs_angle = dxl_.getPresentPosition(id, UNIT_DEGREE);
   float rel_angle = abs_angle - zeroOffsets_[index];
+
+  // Flip if necessary
+  if (flipMotor_[index]) {
+    rel_angle *= -1;
+  }
+
   return rel_angle;
 }
 void NMLHandExo::setRelativeAngle(uint8_t id, float relativeAngle) {
@@ -423,6 +436,11 @@ void NMLHandExo::setRelativeAngle(uint8_t id, float relativeAngle) {
   if (index == -1) {
     debugPrint("Invalid motor ID: " + String(id));
     return;
+  }
+
+  // Flip the relative angle if necessary
+  if (flipMotor_[index]) {
+    relativeAngle *= -1;
   }
 
   // Compute the absolute angle by adding the stored offset
@@ -599,6 +617,17 @@ void NMLHandExo::enableTorque(uint8_t id, bool enable) {
     debugPrint("Motor " + String(id) + " disabled");
   }
 }
+
+int16_t NMLHandExo::getCurrentLimit(uint8_t id) {
+  // Reads the current limit in mA from the motor's control table.
+  int index = getIndexById(id);
+  if (index == -1) {
+      debugPrint(F("Invalid motor ID"));
+      return -1;
+  }
+  return currentLimits_[index];
+}
+
 void NMLHandExo::setCurrentLimit(uint8_t id, uint16_t current_mA) {
   int index = getIndexById(id);
   if (index == -1) {

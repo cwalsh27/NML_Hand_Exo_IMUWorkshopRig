@@ -1,8 +1,9 @@
-import numpy as np
-import time
 import re
+import time
+import numpy as np
 
-from nml_hand_exo.interfaces import BaseComm, LowLevelTCPServer
+from ._interfaces import BaseComm
+
 
 class HandExo(object):
     """
@@ -57,8 +58,21 @@ class HandExo(object):
             msg = f"\033[93m{msg}\033[0m" if warning else msg
             print(msg)
 
+    def set_comm(self, comm: BaseComm):
+        """
+        Sets the communication interface for the exoskeleton.
+
+        Args:
+            comm (BaseComm): The communication interface to use.
+
+        """
+        self.device = comm
+        if self.verbose:
+            self.logger(f"Communication interface set to {comm.__class__.__name__}")
+
     def connect(self):
         """
+        Establishes a connection to the exoskeleton device.
         """
         self.device.connect()
 
@@ -79,7 +93,7 @@ class HandExo(object):
         except Exception as e:
             print(f"[ERROR] Failed to send command: {e}")
 
-    def _receive(self):
+    def _receive(self, wait_until_return: bool = False) -> str:
         """
         Reads a response from the exoskeleton over the serial connection.
         
@@ -87,20 +101,100 @@ class HandExo(object):
             str: The response from the exoskeleton, or an empty string if no response.
 
         """
-        resp = self.device.receive()
-        if resp:
-            resp = resp.strip()
-            self.logger(f"Received: {resp}")
-            return resp
+        return self.device.receive(wait_until_return=wait_until_return)
 
-        # try:
-        #     if self.device.in_waiting:
-        #         response = self.device.receive(self.command_delimiter.encode()).decode().strip()
-        #         self.logger(f"Received: {response}")
-        #         return response
-        # except Exception as e:
-        #     print(f"[ERROR] Failed to read response: {e}")
-        # return ""
+    def _get_motor_attribute(self, attr: str, motor_id: (int or str) = 'all', wait_until_return: bool = False) -> float or list or bool or dict:
+        """
+        Generic method to retrieve a specified attribute from the motor(s).
+
+        Args:
+            attr (str): Attribute to extract ('angle', 'torque', 'limits', 'enabled', etc.).
+            motor_id (int or str): Motor ID to query, or 'all' for all motors.
+
+        Returns:
+            Single value if a motor ID is given, or a dict of {motor_id: attr_value} if 'all'.
+        """
+        self.send_command(f"get_{attr}:{motor_id}")
+        raw = self._receive(wait_until_return=wait_until_return)
+        if self.verbose:
+            print(f"Raw return: {raw}")
+        raw = raw.strip()
+
+        parsed = self._parse_motor_data_block(raw)
+
+        if motor_id == 'all':
+            #return parsed
+            return {mid: m.get(attr) for mid, m in parsed.items()}
+        elif isinstance(motor_id, int):
+            print(f"Returning motor {motor_id}'s {attr} value")
+            if motor_id not in parsed:
+                raise ValueError(f"Motor ID {motor_id} not found in response.")
+            return parsed[motor_id].get(attr)
+        else:
+            raise TypeError(f"motor_id must be 'all' or int, got {type(motor_id)}")
+
+    def _parse_motor_data_block(self, raw: str) -> dict:
+        """
+        Parses a raw motor data string and returns a dictionary of motor data.
+        Handles both single and multi-motor formats.
+
+        Args:
+            raw (str): Raw string from the serial device.
+
+        Returns:
+            dict: Dictionary where keys are motor IDs (as int), and values are dicts of parsed motor attributes.
+        """
+        motor_data = {}
+        lines = [line.strip() for line in raw.strip().splitlines() if line.strip()]
+
+        for line in lines:
+            # Match either "Motor 0: { ... }" or "Motor: { ... }"
+            match = re.match(r"Motor(?:\s+(\d+))?:\s*\{(.+?)\}", line)
+            if not match:
+                continue
+
+            motor_id_str, data_block = match.groups()
+
+            # Fallback if no ID in prefix: look inside the block for id
+            motor_info = {}
+            for part in data_block.split(","):
+                key_val = part.strip().split(":", 1)
+                if len(key_val) != 2:
+                    continue
+                key, val = key_val[0].strip(), key_val[1].strip()
+
+                if key == "id":
+                    motor_info["id"] = int(val)
+                elif key == "angle":
+                    motor_info["angle"] = float(val)
+                elif key == "limits":
+                    motor_info["limits"] = [float(x) for x in re.findall(r"[-+]?[0-9]*\.?[0-9]+", val)]
+                elif key == "torque":
+                    motor_info["torque"] = float(val)
+                elif key == "enabled":
+                    motor_info["enabled"] = val.lower() == "true"
+                elif key == "velocity":
+                    motor_info["velocity"] = float(val)
+                elif key == "acceleration":
+                    motor_info["acceleration"] = float(val)
+                elif key == "baudrate":
+                    motor_info["baudrate"] = int(val)
+                elif key == "home":
+                    motor_info["home"] = float(val)
+                elif key == "absolute_angle":
+                    motor_info["absolute_angle"] = float(val)
+                elif key == "current":
+                    motor_info["current"] = float(val)
+                elif key == "current_limit":
+                    motor_info["current_limit"] = float(val)
+                else:
+                    motor_info[key] = val
+
+            motor_id = int(motor_id_str) if motor_id_str else motor_info.get("id")
+            if motor_id is not None:
+                motor_data[motor_id] = motor_info
+
+        return motor_data
 
     def enable_motor(self, motor_id: (int or str) = 'all'):
         """
@@ -126,9 +220,7 @@ class HandExo(object):
             bool: True if the motor is enabled, False otherwise.
 
         """
-        self.send_command(f"get_enable:{motor_id}")
-        response = self._receive()
-        return response.lower() == 'true' if response else False
+        self._get_motor_attribute('enabled', motor_id, wait_until_return=True)
 
     def disable_motor(self, motor_id: (int or str) = 'all'):
         """
@@ -178,7 +270,7 @@ class HandExo(object):
 
         """
         self.send_command("help")
-        return self._receive()
+        return self._receive(wait_until_return=True)
 
     def version(self) -> str:
         """
@@ -209,8 +301,9 @@ class HandExo(object):
         Parses the exoskeleton info response into a structured dictionary.
         """
         self.send_command("info")
-        raw = self._receive()
-        print(f"Raw return: {raw}")
+        raw = self._receive(wait_until_return=True)
+        if self.verbose:
+            print(f"Raw return: {raw}")
 
         info = {}
         if not raw:
@@ -278,11 +371,9 @@ class HandExo(object):
             int: The current baud rate.
 
         """
-        self.send_command(f"get_baud:{motor_id}")
-        response = self._receive()
-        return response
+        return self._get_motor_attribute('baudrate', motor_id, wait_until_return=True)
 
-    def get_motor_velocity(self, motor_id: (int or str)) -> float:
+    def get_motor_velocity(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the current velocity of the specified motor.
 
@@ -293,13 +384,7 @@ class HandExo(object):
             float: Current velocity of the motor in degrees per second.
 
         """
-        self.send_command(f"get_vel:{motor_id}")
-        response = self._receive()
-        try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+        return self._get_motor_attribute('velocity', motor_id, True)
 
     def set_motor_velocity(self, motor_id: (int or str), velocity: float):
         """
@@ -315,7 +400,7 @@ class HandExo(object):
         """
         self.send_command(f"set_vel:{motor_id}:{velocity}")
 
-    def get_motor_acceleration(self, motor_id: (int or str)) -> float:
+    def get_motor_acceleration(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the current acceleration of the specified motor.
 
@@ -326,13 +411,7 @@ class HandExo(object):
             float: Current acceleration of the motor in degrees per second squared.
 
         """
-        self.send_command(f"get_accel:{motor_id}")
-        response = self._receive()
-        try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+        return self._get_motor_attribute('acceleration', motor_id, True)
 
     def set_motor_acceleration(self, motor_id: (int or str), acceleration: float):
         """
@@ -359,54 +438,7 @@ class HandExo(object):
             float: Current angle of the motor in degrees.
 
         """
-        self.send_command(f"get_angle:{motor_id}")
-        raw = self._receive()
-        print(f"Raw return: {raw}")
-
-        # If the response is a digit, return it as a float
-        if raw and raw.isdigit() or raw.isdecimal():
-            return float(raw)
-
-        info = {}
-        if not raw:
-            return info
-
-        try:
-            lines = [line.strip() for line in raw.splitlines() if line.strip()]
-
-            # First line should have name, version, and motor count
-            header = lines[0]
-
-            # Parse each motor line
-            for line in lines[1:]:
-                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
-                if not motor_match:
-                    continue
-
-                motor_id = int(motor_match.group(1))
-                motor_data = motor_match.group(2)
-
-                # Parse the individual fields inside the { ... }
-                motor_info = {}
-                for part in motor_data.split(','):
-                    key_val = part.strip().split(":", 1)
-                    if len(key_val) != 2:
-                        continue
-                    key, val = key_val[0].strip(), key_val[1].strip()
-                    if key == "id":
-                        motor_info["id"] = int(val)
-                    elif key == "angle":
-                        motor_info["angle"] = float(val)
-                    else:
-                        motor_info[key] = val
-
-                info[f"motor_{motor_id}"] = motor_info
-
-            return info
-
-        except Exception as e:
-            print(f"[ERROR] Failed to parse info: {e}")
-            return {}
+        return self._get_motor_attribute('angle', motor_id, True)
 
     def set_motor_angle(self, motor_id: (int or str), angle: float):
         """
@@ -437,52 +469,7 @@ class HandExo(object):
             float: Absolute angle of the motor in degrees.
 
         """
-        self.send_command(f"get_absangle:{motor_id}")
-        raw = self._receive()
-        # If the response is a digit, return it as a float
-        if raw and raw.isdigit() or raw.isdecimal():
-            return float(raw)
-
-        info = {}
-        if not raw:
-            return info
-
-        try:
-            lines = [line.strip() for line in raw.splitlines() if line.strip()]
-
-            # First line should have name, version, and motor count
-            header = lines[0]
-
-            # Parse each motor line
-            for line in lines[1:]:
-                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
-                if not motor_match:
-                    continue
-
-                motor_id = int(motor_match.group(1))
-                motor_data = motor_match.group(2)
-
-                # Parse the individual fields inside the { ... }
-                motor_info = {}
-                for part in motor_data.split(','):
-                    key_val = part.strip().split(":", 1)
-                    if len(key_val) != 2:
-                        continue
-                    key, val = key_val[0].strip(), key_val[1].strip()
-                    if key == "id":
-                        motor_info["id"] = int(val)
-                    elif key == "angle":
-                        motor_info["absolute_angle"] = float(val)
-                    else:
-                        motor_info[key] = val
-
-                info[f"motor_{motor_id}"] = motor_info
-
-            return info
-
-        except Exception as e:
-            print(f"[ERROR] Failed to parse info: {e}")
-            return {}
+        return self._get_motor_attribute('absolute_angle', motor_id, True)
 
     def set_absolute_motor_angle(self, motor_id: (int or str), angle: float):
         """
@@ -513,64 +500,7 @@ class HandExo(object):
             float: Home angle of the motor in degrees.
 
         """
-        self.send_command(f"get_home:{motor_id}")
-        raw = self._receive()
-        print(f"Raw return: {raw}")
-
-        # If the response is a digit, return it as a float
-        if raw and raw.isdigit():
-            return float(raw)
-
-        info = {}
-        if not raw:
-            return info
-
-        try:
-            lines = [line.strip() for line in raw.splitlines() if line.strip()]
-
-            # First line should have name, version, and motor count
-            header = lines[0]
-            name_match = re.search(r"Name:\s*([^\s]+)", header)
-            version_match = re.search(r"Version:\s*([^\s]+)", header)
-            motor_count_match = re.search(r"Number of Motors:\s*(\d+)", header)
-
-            if name_match:
-                info['name'] = name_match.group(1)
-            if version_match:
-                info['version'] = version_match.group(1)
-            if motor_count_match:
-                info['n_motors'] = int(motor_count_match.group(1))
-
-            # Parse each motor line
-            for line in lines[1:]:
-                motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
-                if not motor_match:
-                    continue
-
-                motor_id = int(motor_match.group(1))
-                motor_data = motor_match.group(2)
-
-                # Parse the individual fields inside the { ... }
-                motor_info = {}
-                for part in motor_data.split(','):
-                    key_val = part.strip().split(":", 1)
-                    if len(key_val) != 2:
-                        continue
-                    key, val = key_val[0].strip(), key_val[1].strip()
-                    if key == "id":
-                        motor_info["id"] = int(val)
-                    elif key == "home":
-                        motor_info["angle"] = float(val)
-                    else:
-                        motor_info[key] = val
-
-                info[f"motor_{motor_id}"] = motor_info
-
-            return info
-
-        except Exception as e:
-            print(f"[ERROR] Failed to parse info: {e}")
-            return {}
+        return self._get_motor_attribute('home', motor_id, True)
 
     def set_home(self, motor_id: (int or str), home_angle: float):
         """
@@ -586,7 +516,7 @@ class HandExo(object):
         """
         self.send_command(f"set_home:{motor_id}:{home_angle}")
 
-    def get_motor_torque(self, motor_id: (int or str)) -> float:
+    def get_motor_torque(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the current torque of the specified motor.
 
@@ -597,15 +527,9 @@ class HandExo(object):
             float: Current torque of the motor in Newton-meters.
 
         """
-        self.send_command(f"get_torque:{motor_id}")
-        response = self._receive()
-        try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+        return self._get_motor_attribute('torque', motor_id, True)
 
-    def get_motor_current(self, motor_id: (int or str)) -> float:
+    def get_motor_current(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the current draw of the specified motor.
 
@@ -616,15 +540,9 @@ class HandExo(object):
             float: Current draw of the motor in Amperes.
 
         """
-        self.send_command(f"get_current:{motor_id}")
-        response = self._receive()
-        try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+        return self._get_motor_attribute('current', motor_id, True)
 
-    def get_motor_current_limit(self, motor_id: (int or str)) -> float:
+    def get_motor_current_limit(self, motor_id: (int or str) = 'all') -> float:
         """
         Retrieves the current limit of the specified motor.
 
@@ -635,13 +553,7 @@ class HandExo(object):
             float: Current limit of the motor in Amperes.
 
         """
-        self.send_command(f"get_current_lim:{motor_id}")
-        response = self._receive()
-        try:
-            return float(response.split(':')[-1])
-        except (ValueError, IndexError):
-            print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-            return 0.0
+        return self._get_motor_attribute('current_limit', motor_id, True)
 
     def set_current_limit(self, motor_id: (int or str), current_limit: float):
         """
@@ -657,33 +569,6 @@ class HandExo(object):
         """
         self.send_command(f"set_current_lim:{motor_id}:{current_limit}")
 
-    def get_motor_status(self, motor_id: (int or str)) -> dict:
-        """
-        Retrieves the status of the specified motor, including angle, torque, current, velocity, and acceleration.
-
-        Args:
-            motor_id (int or str): ID of the motor to query.
-
-        Returns:
-            dict: A dictionary containing the motor's status.
-
-        """
-        self.send_command(f"get_status:{motor_id}")
-        response = self._receive()
-        status = {}
-        if response:
-            try:
-                parts = response.split(',')
-                status['angle'] = float(parts[0].split(':')[-1])
-                status['torque'] = float(parts[1].split(':')[-1])
-                status['current'] = float(parts[2].split(':')[-1])
-                status['velocity'] = float(parts[3].split(':')[-1])
-                status['acceleration'] = float(parts[4].split(':')[-1])
-                return status
-            except (ValueError, IndexError):
-                print(f"[ERROR] Invalid response for motor {motor_id}: {response}")
-        return {}
-
     def get_motor_limits(self, motor_id: (int or str) = 'all') -> tuple:
         """
         Retrieves the limits for the specified motor, including minimum and maximum angles.
@@ -695,64 +580,7 @@ class HandExo(object):
             tuple: A tuple containing the minimum and maximum angles of the motor.
 
         """
-        self.send_command(f"get_motor_limits:{motor_id}")
-        raw = self._receive()  # Should get "Motor {id} limits:[{val},{val}]"
-
-        if motor_id == 'all':
-            info = {}
-            if not raw:
-                return info
-
-            try:
-                lines = [line.strip() for line in raw.splitlines() if line.strip()]
-
-                # First line should have name, version, and motor count
-                header = lines[0]
-
-                # Parse each motor line
-                for line in lines[1:]:
-                    motor_match = re.match(r"Motor\s+(\d+):\s*\{(.+?)\}", line)
-                    if not motor_match:
-                        continue
-
-                    motor_id = int(motor_match.group(1))
-                    motor_data = motor_match.group(2)
-
-                    # Parse the individual fields inside the { ... }
-                    motor_info = {}
-                    for part in motor_data.split(','):
-                        key_val = part.strip().split(":", 1)
-                        if len(key_val) != 2:
-                            continue
-                        key, val = key_val[0].strip(), key_val[1].strip()
-                        if key == "id":
-                            motor_info["id"] = int(val)
-                        elif key == "Limits":
-                            print(f"limits: {val}")
-                            motor_info["lower_limit"] = float(val.split(',')[0].strip('[]'))
-                            motor_info["upper_limit"] = float(val.split(',')[1].strip('[]'))
-                        else:
-                            motor_info[key] = val
-
-                    info[f"motor_{motor_id}"] = motor_info
-
-                return info
-
-            except Exception as e:
-                print(f"[ERROR] Failed to parse info: {e}")
-                return {}
-        else:
-            limits = None
-            if raw:
-                try:
-                    parts = raw.split(':')
-                    if len(parts) == 3 and parts[0].startswith("Motor") and parts[1].strip() == "limits":
-                        limits = tuple(map(float, parts[2].strip('[]').split(',')))
-                    else:
-                        print(f"[ERROR] Invalid response for motor {motor_id}: {raw}")
-                except (ValueError, IndexError):
-                    print(f"[ERROR] Failed to parse limits for motor {motor_id}: {raw}")
-            return limits if limits else (None, None)
+        return self._get_motor_attribute('limits', motor_id, True)
 
     def set_motor_upper_limit(self, motor_id: (int or str), upper_limit: float):
         """
@@ -797,7 +625,7 @@ class HandExo(object):
         """
         self.send_command(f"set_motor_limits:{motor_id}:{lower_limit}:{upper_limit}")
 
-    def reboot_motor(self, motor_id: (int or str)):
+    def reboot_motor(self, motor_id: (int or str) = 'all'):
         """
         Reboots the specified motor.
 
@@ -808,10 +636,7 @@ class HandExo(object):
             None
 
         """
-        if motor_id == 'all':
-            self.send_command("reboot:all")
-        else:
-            self.send_command(f"reboot:{motor_id}")
+        self.send_command(f"reboot:{motor_id}")
 
     def get_motor_mode(self) -> str:
         """

@@ -1,6 +1,7 @@
 #include "gesture_library.h"
 #include "gesture_controller.h"
 
+
 GestureController::GestureController(NMLHandExo& exo)
   : exo_(exo),
     cycleGesturePin(-1),
@@ -73,6 +74,32 @@ void GestureController::setCycleGestureButton(const int pin) {
   cycleGestureButtonState = HIGH;
   lastCycleGestureDebounceTime = 0;
   debugPrint("Gesture state switch button set on pin " + String(cycleGesturePin));
+}
+
+void GestureController::setGestureButtonCallback(const String& gesture, const int pin) {
+    if (gestureButtonCount_ >= MAX_GESTURE_BUTTONS) {
+        debugPrint("[GestureController] Maximum gesture buttons reached, cannot add more.");
+        return;
+    }
+
+    // Check if the gesture already exists
+    for (int i = 0; i < gestureButtonCount_; ++i) {
+        if (gestureButtons_[i].gestureName == gesture) {
+        debugPrint("[GestureController] Gesture button for '" + gesture + "' already exists.");
+        return;
+        }
+    }
+
+    // Add new gesture button
+    GestureButton& gb = gestureButtons_[gestureButtonCount_++];
+    gb.pin = pin;
+    gb.gestureName = gesture;
+    gb.buttonState = HIGH; // Default state
+    gb.lastButtonState = HIGH;
+    gb.lastDebounceTime = 0;
+
+    pinMode(pin, INPUT_PULLUP);
+    debugPrint("Gesture button for '" + gesture + "' set on pin " + String(pin));
 }
 
 void GestureController::setGestureStateSwitchButton(const int pin) {
@@ -201,6 +228,35 @@ void GestureController::update() {
             cycleGestureState();
         }
     }
+
+    // === Check all gesture buttons ===
+    for (int i = 0; i < gestureButtonCount_; ++i) {
+    GestureButton& gb = gestureButtons_[i];
+    int reading = digitalRead(gb.pin);
+
+    if (reading != gb.lastButtonState) {
+        gb.lastDebounceTime = millis();
+    }
+
+    if ((millis() - gb.lastDebounceTime) > BUTTON_DEBOUNCE_DURATION) {
+        if (reading != gb.buttonState) {
+            gb.buttonState = reading;
+            if (gb.buttonState == LOW) {
+                debugPrint("[GestureController] Gesture button pressed for: " + gb.gestureName);
+
+                int gIdx = findGestureIndex(gb.gestureName);
+                if (gIdx != -1 && gestureLibrary[gIdx].numStates > 0) {
+                    currentGesture_ = gestureLibrary[gIdx].name;
+                    currentGestureState_ = gestureLibrary[gIdx].states[0].name;
+                    executeGesture(currentGesture_, currentGestureState_);
+                }
+            }
+        }
+    }
+
+    gb.lastButtonState = reading;
+}
+
 }
 
 
