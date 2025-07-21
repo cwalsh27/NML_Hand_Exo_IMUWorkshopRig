@@ -20,11 +20,11 @@ from scipy.signal import butter, filtfilt, hilbert, iirnotch, lfilter, lfilter_z
 #from sklearn.decomposition import PCA
 #from sklearn.preprocessing import StandardScaler
 
-
+from ._features import compute_rms, window_rms, common_average_reference, envelope_extraction
 class RealtimeEMGFilter:
-    def __init__(self, fs: (int or float), n_channels: int = 64, lowcut: (int or float) = 20, highcut: (int or float) = 500, order=2,
-                 notch_freq: (int or float) = 60.0, notch_Q: (int or float) = 30.0, enable_bandpass: bool = True,
-                 enable_notch: bool = True):
+    def __init__(self, sampling_rate: (int or float), n_channels: int = 64, lowcut: (int or float) = 10, highcut: (int or float) = 500, order=2,
+                 notch_freq: (int or float) = 60.0, notch_Q: (int or float) = 30.0, enable_car: bool = True, enable_bandpass: bool = True,
+                 enable_notch: bool = True, verbose: bool = False):
         """
         Real-time EMG filter class with stateful per-channel notch + bandpass filters.
 
@@ -35,23 +35,25 @@ class RealtimeEMGFilter:
             order (int): Butterworth filter order
             notch_freq (int or float): Notch filter center frequency (e.g., 60 Hz)
             notch_Q (int or float): Notch filter quality factor
+            enable_car (bool): Whether to apply Common Average Referencing
             enable_bandpass (bool): Whether to apply bandpass filter
             enable_notch (bool): Whether to apply notch filter
         """
-        self.fs = fs
+        self.fs = sampling_rate
         self.n_channels = n_channels
+        self.enable_car = enable_car
         self.enable_bandpass = enable_bandpass
         self.enable_notch = enable_notch
+        self.verbose = verbose
 
-        # Bandpass filter setup
-        self.bp_b, self.bp_a = butter(order, [lowcut / (fs / 2), highcut / (fs / 2)], btype='band')
-        bp_zi = lfilter_zi(self.bp_b, self.bp_a)
-        self.bp_zi = [bp_zi * 0 for _ in range(n_channels)]
+        self.broken_ch_std_threshold = 300  # Standard deviation threshold for detecting bad channels
 
-        # Notch filter setup
-        self.notch_b, self.notch_a = iirnotch(notch_freq, notch_Q, fs)
-        notch_zi = lfilter_zi(self.notch_b, self.notch_a)
-        self.notch_zi = [notch_zi * 0 for _ in range(n_channels)]
+        self.bp_b, self.bp_a, self.bp_zi = None, None, None
+        self.notch_b, self.notch_a, self.notch_zi = None, None, None
+
+        # Initialize filters
+        self.set_bandpass(lowcut, highcut, order)
+        self.set_notch(notch_freq, notch_Q)
 
     def update(self, data):
         """
@@ -63,6 +65,16 @@ class RealtimeEMGFilter:
         Returns:
             np.ndarray: filtered data (same shape)
         """
+        if data.ndim != 2 or data.shape[0] != self.n_channels:
+            raise ValueError(f"Input data must be a 2D array with shape ({self.n_channels}, n_samples)")
+
+        if self.enable_car:
+            # Apply Common Average Referencing (CAR), include heck for bad channels
+            bad_channels = self.detect_bad_channels(data, self.broken_ch_std_threshold)
+            if self.verbose:
+                print(f"bad channels: {bad_channels}")
+            data = common_average_reference(data, ignore_channels=bad_channels)
+
         filtered = np.zeros_like(data)
         for ch in range(self.n_channels):
             sig = data[ch]
@@ -77,12 +89,64 @@ class RealtimeEMGFilter:
 
         return filtered
 
+    def toggle_car(self, state: bool):
+        """
+        Enable or disable Common Average Referencing (CAR).
+
+        Parameters:
+            state (bool): True to enable CAR, False to disable
+
+        """
+        self.enable_car = state
+
     def toggle_notch(self, state: bool):
+        """
+        Enable or disable notch filter.
+
+        Parameters:
+            state (bool): True to enable notch filter, False to disable
+
+        """
         self.enable_notch = state
 
     def toggle_bandpass(self, state: bool):
+        """
+        Enable or disable bandpass filter.
+
+        Parameters:
+            state (bool): True to enable bandpass filter, False to disable
+
+        """
         self.enable_bandpass = state
 
+    def set_bandpass(self, lowcut: (int or float), highcut: (int or float), order: int = 2):
+        """
+        Update bandpass filter parameters.
+
+        Parameters:
+            lowcut, highcut (int or float): New bandpass filter range
+            order (int): New Butterworth filter order
+        """
+        print(f"[RealtimeEMGFilter] Setting bandpass filter: {lowcut}-{highcut} Hz, order={order}, fs={self.fs}")
+        self.bp_b, self.bp_a = butter(order, [lowcut / (self.fs / 2), highcut / (self.fs / 2)], btype='band')
+        bp_zi = lfilter_zi(self.bp_b, self.bp_a)
+        self.bp_zi = [bp_zi * 0 for _ in range(self.n_channels)]
+
+    def set_notch(self, notch_freq: (int or float), notch_Q: (int or float)):
+        """
+        Update notch filter parameters.
+
+        Parameters:
+            notch_freq (int or float): New notch filter center frequency (e.g., 60 Hz)
+            notch_Q (int or float): New notch filter quality factor
+        """
+        self.notch_b, self.notch_a = iirnotch(notch_freq, notch_Q, self.fs)
+        notch_zi = lfilter_zi(self.notch_b, self.notch_a)
+        self.notch_zi = [notch_zi * 0 for _ in range(self.n_channels)]
+
+    def detect_bad_channels(self, baseline_data, std_threshold=100):
+        stds = np.std(baseline_data, axis=1)
+        return [i for i, std in enumerate(stds) if std > std_threshold]
 
 
 def preprocess_emg(emg_data, sample_rate):

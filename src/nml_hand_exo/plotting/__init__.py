@@ -1,5 +1,5 @@
 from ._realtime_plotter import (
-    RealtimePlotter,
-    PyQtGraphRealtimePlotter,
+    StackedPlotter,
+    #PyQtGraphRealtimePlotter,
 )
 from ._grid_plotter import GridPlotter

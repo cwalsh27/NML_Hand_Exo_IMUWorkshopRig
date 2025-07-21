@@ -6,7 +6,7 @@ from pylsl import StreamInlet, resolve_byprop
 
 # A generic LSL handler that subscribes to LSL streams and provides basic functionality
 class LSLClient:
-    def __init__(self, stream_type="EMG", maxlen=10000, verbose=False):
+    def __init__(self, stream_type="EMG", maxlen=10000, auto_start=True, verbose=False):
         print(f"[LSLClient] Looking for a stream of type '{stream_type}'...")
         streams = resolve_byprop("type", stream_type, timeout=5)
         if not streams:
@@ -15,10 +15,11 @@ class LSLClient:
         self.inlet = StreamInlet(streams[0])
         self.info = self.inlet.info()
         self.n_channels = self.info.channel_count()
-        self.fs = self.info.nominal_srate()
+        self.sampling_rate = self.info.nominal_srate()
         self.name = self.info.name()
         self.type = self.info.type()
         self.channel_labels, self.units = self._get_channel_metadata()
+        self.auto_start = auto_start
         self.verbose = verbose
 
         self.buffers = [deque(maxlen=maxlen) for _ in range(self.n_channels)]
@@ -30,10 +31,13 @@ class LSLClient:
         if self.verbose:
             self._print_metadata()
 
+        if self.auto_start:
+            self.start_streaming()
+
     def _print_metadata(self):
         print(f"[LSLClient] Connected to stream: '{self.name}'")
         print(f"  Type: {self.type}")
-        print(f"  Sampling Rate: {self.fs} Hz")
+        print(f"  Sampling Rate: {self.sampling_rate} Hz")
         print(f"  Channels: {self.n_channels}")
         print(f"  Channel Labels: {self.channel_labels}")
         #print(f"  Units: {self.units}")
@@ -79,7 +83,7 @@ class LSLClient:
                     self.total_samples += 1
 
     def get_latest_window(self, window_ms):
-        n_samples = int(self.fs * window_ms / 1000.0)
+        n_samples = int(self.sampling_rate * window_ms / 1000.0)
         with self.lock:
             result = np.zeros((self.n_channels, n_samples))
             for ch in range(self.n_channels):
@@ -101,7 +105,7 @@ class LSLClient:
         return {
             "name": self.name,
             "type": self.type,
-            "fs": self.fs,
+            "fs": self.sampling_rate,
             "n_channels": self.n_channels,
             "channel_labels": self.channel_labels,
             "units": self.units,
