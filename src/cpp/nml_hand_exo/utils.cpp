@@ -38,9 +38,6 @@ void commandPrint(const String& msg) {
     Serial2.println(cmdMsg);  // fallback
     Serial.println(cmdMsg);  // fallback
   #endif
-
-  // Print with debugPrint too
-  debugPrint(cmdMsg);
 }
 
 void initializeIMU(Adafruit_ISM330DHCX& imu) {
@@ -49,124 +46,7 @@ void initializeIMU(Adafruit_ISM330DHCX& imu) {
     // if (!ism330dhcx.begin_SPI(LSM_CS, LSM_SCK, LSM_MISO, LSM_MOSI)) {
     debugPrint("Failed to find ISM330DHCX chip");
   } else {
-    debugPrint("ISM330DHCX Found!");
-
-    // ism330dhcx.setAccelRange(LSM6DS_ACCEL_RANGE_2_G);
-    debugPrint("Accelerometer range set to: ");
-    switch (imu.getAccelRange()) {
-    case LSM6DS_ACCEL_RANGE_2_G:
-      debugPrint("+-2G");
-      break;
-    case LSM6DS_ACCEL_RANGE_4_G:
-      debugPrint("+-4G");
-      break;
-    case LSM6DS_ACCEL_RANGE_8_G:
-      debugPrint("+-8G");
-      break;
-    case LSM6DS_ACCEL_RANGE_16_G:
-      debugPrint("+-16G");
-      break;
-    }
-
-    // ism330dhcx.setGyroRange(LSM6DS_GYRO_RANGE_250_DPS);
-    debugPrint("Gyro range set to: ");
-    switch (imu.getGyroRange()) {
-    case LSM6DS_GYRO_RANGE_125_DPS:
-      debugPrint("125 degrees/s");
-      break;
-    case LSM6DS_GYRO_RANGE_250_DPS:
-      debugPrint("250 degrees/s");
-      break;
-    case LSM6DS_GYRO_RANGE_500_DPS:
-      debugPrint("500 degrees/s");
-      break;
-    case LSM6DS_GYRO_RANGE_1000_DPS:
-      debugPrint("1000 degrees/s");
-      break;
-    case LSM6DS_GYRO_RANGE_2000_DPS:
-      debugPrint("2000 degrees/s");
-      break;
-    case ISM330DHCX_GYRO_RANGE_4000_DPS:
-      debugPrint("4000 degrees/s");
-      break;
-    }
-
-    // ism330dhcx.setAccelDataRate(LSM6DS_RATE_12_5_HZ);
-    debugPrint("Accelerometer data rate set to: ");
-    switch (imu.getAccelDataRate()) {
-    case LSM6DS_RATE_SHUTDOWN:
-      debugPrint("0 Hz");
-      break;
-    case LSM6DS_RATE_12_5_HZ:
-      debugPrint("12.5 Hz");
-      break;
-    case LSM6DS_RATE_26_HZ:
-      debugPrint("26 Hz");
-      break;
-    case LSM6DS_RATE_52_HZ:
-      debugPrint("52 Hz");
-      break;
-    case LSM6DS_RATE_104_HZ:
-      debugPrint("104 Hz");
-      break;
-    case LSM6DS_RATE_208_HZ:
-      debugPrint("208 Hz");
-      break;
-    case LSM6DS_RATE_416_HZ:
-      debugPrint("416 Hz");
-      break;
-    case LSM6DS_RATE_833_HZ:
-      debugPrint("833 Hz");
-      break;
-    case LSM6DS_RATE_1_66K_HZ:
-      debugPrint("1.66 KHz");
-      break;
-    case LSM6DS_RATE_3_33K_HZ:
-      debugPrint("3.33 KHz");
-      break;
-    case LSM6DS_RATE_6_66K_HZ:
-      debugPrint("6.66 KHz");
-      break;
-    }
-
-    // ism330dhcx.setGyroDataRate(LSM6DS_RATE_12_5_HZ);
-    debugPrint("Gyro data rate set to: ");
-    switch (imu.getGyroDataRate()) {
-    case LSM6DS_RATE_SHUTDOWN:
-      debugPrint("0 Hz");
-      break;
-    case LSM6DS_RATE_12_5_HZ:
-      debugPrint("12.5 Hz");
-      break;
-    case LSM6DS_RATE_26_HZ:
-      debugPrint("26 Hz");
-      break;
-    case LSM6DS_RATE_52_HZ:
-      debugPrint("52 Hz");
-      break;
-    case LSM6DS_RATE_104_HZ:
-      debugPrint("104 Hz");
-      break;
-    case LSM6DS_RATE_208_HZ:
-      debugPrint("208 Hz");
-      break;
-    case LSM6DS_RATE_416_HZ:
-      debugPrint("416 Hz");
-      break;
-    case LSM6DS_RATE_833_HZ:
-      debugPrint("833 Hz");
-      break;
-    case LSM6DS_RATE_1_66K_HZ:
-      debugPrint("1.66 KHz");
-      break;
-    case LSM6DS_RATE_3_33K_HZ:
-      debugPrint("3.33 KHz");
-      break;
-    case LSM6DS_RATE_6_66K_HZ:
-      debugPrint("6.66 KHz");
-      break;
-    }
-
+    debugPrint(F("ISM330DHCX Found!"));
     imu.configInt1(false, false, true); // accelerometer DRDY on INT1
     imu.configInt2(false, true, false); // gyro DRDY on INT2
 
@@ -176,7 +56,7 @@ void initializeIMU(Adafruit_ISM330DHCX& imu) {
 void getIMUData(Adafruit_ISM330DHCX& imu) {
   sensors_event_t accel, gyro, temp;
   if (!imu.getEvent(&accel, &gyro, &temp)) {
-    debugPrint("IMU read failed");
+    debugPrint(F("IMU read failed"));
     return;
   }
   char buffer[128];
@@ -299,7 +179,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     val = getArg(token, 2).toInt();
     if (id != -1) exo.setBaudRate(id, val);
 
-  } else if (cmd == "get_vel") {
+  } else if (cmd == "get_goal_velocity") {
     String arg = getArg(token, 1);  // local copy
     arg.trim(); arg.toUpperCase();
     if (arg == "ALL") {
@@ -320,7 +200,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
       }
     }
 
-  } else if (cmd == "set_vel") {
+  } else if (cmd == "set_goal_velocity") {
     // Set velocity limit for a motor or all motors, Fast == 300 rpm, slow = 10rpm
     String arg = getArg(token, 1);  // local copy
     arg.trim();
@@ -339,7 +219,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
         debugPrint("Set velocity limit for motor " + String(id) + " to " + String(val));
     }
 
-  } else if (cmd == "get_acc") {
+  } else if (cmd == "get_goal_acceleration") {
     String arg = getArg(token, 1);  // local copy
     arg.trim(); arg.toUpperCase();
     if (arg == "ALL") {
@@ -360,7 +240,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
       }
     }
 
-  } else if (cmd == "set_acc") {
+  } else if (cmd == "set_goal_acceleration") {
     String arg = getArg(token, 1);  // local copy
     arg.trim();
     arg.toUpperCase();
@@ -645,12 +525,12 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     gc.executeGesture(gestureStr, stateStr);
 
   } else if (cmd == "cycle_gesture") {
-    debugPrint("[GestureController] cycle gesture button pressed");
+    debugPrint(F("[GestureController] cycle gesture button pressed"));
     String exo_mode = exo.getExoOperatingMode();
     if (exo_mode == "GESTURE_FIXED" || exo_mode == "GESTURE_CONTINUOUS") {
       gc.cycleGesture();
     } else {
-      debugPrint("Current mode FREE. Change mode to cycle gestures");
+      debugPrint(F("Current mode FREE. Change mode to cycle gestures"));
     }
 
   } else if (cmd == "get_gesture_state") {
@@ -658,12 +538,12 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     commandPrint("Current gesture state: " + current_gesture);
 
   } else if (cmd == "cycle_gesture_state") {
-    debugPrint("[GestureController] cycle gesture button pressed");
+    debugPrint(F("[GestureController] cycle gesture button pressed"));
     String exo_mode = exo.getExoOperatingMode();
     if (exo_mode == "GESTURE_FIXED" || exo_mode == "GESTURE_CONTINUOUS") {
       gc.cycleGestureState();
     } else {
-      debugPrint("Current mode FREE. Change mode to cycle gesture states");
+      debugPrint(F("Current mode FREE. Change mode to cycle gesture states"));
     }
 
   } else if (cmd == "set_gesture_state") { 
@@ -671,7 +551,7 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     gc.executeCurrentGestureNewState(stateStr);
 
   } else if (cmd == "calibrate_exo") {
-    debugPrint("Command not supported yet");
+    debugPrint(F("Command not supported yet"));
     //String mode = getArg(token, 1);
     //bool timed = (mode == "timed");
     //float duration = getArg(token, 2).toFloat();
@@ -683,58 +563,57 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_ISM330DHCX& i
     commandPrint("Exo Device Version: " + String(NMLHandExo::VERSION));
 
   } else if (cmd == "info") {
-    debugPrint("Device Info: ");
+    debugPrint(F("Device Info: "));
     commandPrint(exo.getDeviceInfo());
 
   } else if (cmd == "get_imu") {
     getIMUData(imu);
   
   } else if (token == "help") {
-    // TO-DO: See if changing these static messages to flash memory debugPrint(F("message")); makes boot faster
     commandPrint(F(" ================================== List of commands ======================================"));
-    commandPrint(F(" led                 |  ID/NAME/ALL:ON/OFF  | // Turn motor or system LED on/off"));
-    commandPrint(F(" help                |                      | // Display available commands"));
-    commandPrint(F(" home                |  ID/NAME/ALL         | // Set specific motor (or all) to home position"));
-    commandPrint(F(" info                |                      | // Gets information about exo device. Returns string of metadata with comma delimiters"));
-    commandPrint(F(" debug               |  ON/OFF              | // Set verbose output on/off"));
-    commandPrint(F(" reboot              |  ID/NAME/ALL         | // Reboot motor"));
-    commandPrint(F(" version             |                      | // Get current software version"));
-    commandPrint(F(" enable              |  ID/NAME             | // Enable torque for motor"));
-    commandPrint(F(" disable             |  ID/NAME             | // Disable torque for motor"));
-    commandPrint(F(" get_enable          |  ID/NAME             | // Get the torque enable status of the motor"));
-    commandPrint(F(" get_baud            |  ID/NAME             | // Get baud rate for motor"));
-    commandPrint(F(" set_baud            |  ID/NAME:VALUE       | // Set baud rate for motor"));
-    commandPrint(F(" get_vel             |  ID/NAME             | // Get current velocity profile for motor"));
-    commandPrint(F(" set_vel             |  ID/NAME/ALL:VALUE   | // Set velocity profile for motor"));
-    commandPrint(F(" get_acc             |  ID/NAME             | // Get current acceleration profile for motor"));
-    commandPrint(F(" set_acc             |  ID/NAME/ALL:VALUE   | // Set acceleration limit for motor"));
-    commandPrint(F(" get_home            |  ID/NAME             | // Get stored zero position"));
-    commandPrint(F(" set_home            |  ID/NAME:VALUE       | // Set current position as new zero angle"));
-    commandPrint(F(" get_angle           |  ID/NAME             | // Get relative motor angle"));
-    commandPrint(F(" set_angle           |  ID/NAME:ANGLE       | // Set motor angle"));
-    commandPrint(F(" get_absolute_angle  |  ID/NAME/ALL         | // Get absolute motor angle"));
-    commandPrint(F(" set_absolute_angle  |  ID/NAME:ANGLE       | // Set absolute motor angle"));
-    commandPrint(F(" get_torque          |  ID/NAME             | // Get torque output reading from motor"));
-    commandPrint(F(" get_current         |  ID/NAME             | // Get current draw from motor"));
-    commandPrint(F(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor"));
-    commandPrint(F(" set_current_lim     |  ID/NAME:VAL         | // Set current draw limit for motor"));
-    commandPrint(F(" get_motor_limits    |  ID/NAME             | // Get motor limits (upper and lower bounds)"));
-    commandPrint(F(" set_motor_limits    |  ID/NAME:VAL:VAL     | // Set motor limits (upper and lower bounds)"));
-    commandPrint(F(" set_upperpos_lim    |  ID/NAME:ANGLE       | // Set the absolute upper bound position limit for the motor"));
-    commandPrint(F(" set_lowerpos_lim    |  ID/NAME:ANGLE       | // Set the absolute lower bound position limit for the motor"));
-    commandPrint(F(" get_motor_mode      |                      | // Get motor control mode"));
-    commandPrint(F(" set_motor_mode      |  VALUE               | // Set motor control mode ('POSITION', 'CURRENT_POSITION', 'VELOCITY')"));
-    commandPrint(F(" get_exo_mode        |                      | // Get exo device operation mode"));
-    commandPrint(F(" set_exo_mode        |  VALUE               | // Set exo device operation mode (FREE', 'GESTURE_FIXED', 'GESTURE_CONTINUOUS')"));
-    commandPrint(F(" gesture_list        |                      | // Get gestures in library"));
-    commandPrint(F(" set_gesture         |  NAME:VALUE          | // Set exo gesture"));
-    commandPrint(F(" get_gesture         |                      | // Get exo gesture"));
-    commandPrint(F(" set_gesture_state   |  NAME:VALUE          | // Set exo gesture state"));
-    commandPrint(F(" get_gesture_state   |                      | // Get exo gesture state"));
-    commandPrint(F(" cycle_gesture       |                      | // Executes the next gesture in the library"));
-    commandPrint(F(" cycle_gesture_state |                      | // Cycles the next gesture state"));
-    commandPrint(F(" calibrate_exo       |  VALUE:VALUE         | // start the calibration routine for the exo"));
-    commandPrint(F(" get_imu             |                      | // Returns list of accel & gyro values"));
+    commandPrint(F(" led                   |  ID/NAME/ALL:ON/OFF  | // Turn motor or system LED on/off"));
+    commandPrint(F(" help                  |                      | // Display available commands"));
+    commandPrint(F(" home                  |  ID/NAME/ALL         | // Set specific motor (or all) to home position"));
+    commandPrint(F(" info                  |                      | // Gets information about exo device. Returns string of metadata with comma delimiters"));
+    commandPrint(F(" debug                 |  ON/OFF              | // Set verbose output on/off"));
+    commandPrint(F(" reboot                |  ID/NAME/ALL         | // Reboot motor"));
+    commandPrint(F(" version               |                      | // Get current software version"));
+    commandPrint(F(" enable                |  ID/NAME             | // Enable torque for motor"));
+    commandPrint(F(" disable               |  ID/NAME             | // Disable torque for motor"));
+    commandPrint(F(" get_enable            |  ID/NAME             | // Get the torque enable status of the motor"));
+    commandPrint(F(" get_baud              |  ID/NAME             | // Get baud rate for motor"));
+    commandPrint(F(" set_baud              |  ID/NAME:VALUE       | // Set baud rate for motor"));
+    commandPrint(F(" get_goal_velocity     |  ID/NAME             | // Get current velocity profile for motor"));
+    commandPrint(F(" set_goal_velocity     |  ID/NAME/ALL:VALUE   | // Set velocity profile for motor"));
+    commandPrint(F(" get_goal_acceleration |  ID/NAME             | // Get current acceleration profile for motor"));
+    commandPrint(F(" set_goal_acceleration |  ID/NAME/ALL:VALUE   | // Set acceleration limit for motor"));
+    commandPrint(F(" get_home              |  ID/NAME             | // Get stored zero position"));
+    commandPrint(F(" set_home              |  ID/NAME:VALUE       | // Set current position as new zero angle"));
+    commandPrint(F(" get_angle             |  ID/NAME             | // Get relative motor angle"));
+    commandPrint(F(" set_angle             |  ID/NAME:ANGLE       | // Set motor angle"));
+    commandPrint(F(" get_absolute_angle    |  ID/NAME/ALL         | // Get absolute motor angle"));
+    commandPrint(F(" set_absolute_angle    |  ID/NAME:ANGLE       | // Set absolute motor angle"));
+    commandPrint(F(" get_torque            |  ID/NAME             | // Get torque output reading from motor"));
+    commandPrint(F(" get_current           |  ID/NAME             | // Get current draw from motor"));
+    commandPrint(F(" set_current_lim       |  ID/NAME:VAL         | // Set current draw limit for motor"));
+    commandPrint(F(" set_current_lim       |  ID/NAME:VAL         | // Set current draw limit for motor"));
+    commandPrint(F(" get_motor_limits      |  ID/NAME             | // Get motor limits (upper and lower bounds)"));
+    commandPrint(F(" set_motor_limits      |  ID/NAME:VAL:VAL     | // Set motor limits (upper and lower bounds)"));
+    commandPrint(F(" set_upper_limit       |  ID/NAME:ANGLE       | // Set the absolute upper bound position limit for the motor"));
+    commandPrint(F(" set_lower_limit       |  ID/NAME:ANGLE       | // Set the absolute lower bound position limit for the motor"));
+    commandPrint(F(" get_motor_mode        |                      | // Get motor control mode"));
+    commandPrint(F(" set_motor_mode        |  VALUE               | // Set motor control mode ('POSITION', 'CURRENT_POSITION', 'VELOCITY')"));
+    commandPrint(F(" get_exo_mode          |                      | // Get exo device operation mode"));
+    commandPrint(F(" set_exo_mode          |  VALUE               | // Set exo device operation mode (FREE', 'GESTURE_FIXED', 'GESTURE_CONTINUOUS')"));
+    commandPrint(F(" gesture_list          |                      | // Get gestures in library"));
+    commandPrint(F(" set_gesture           |  NAME:VALUE          | // Set exo gesture"));
+    commandPrint(F(" get_gesture           |                      | // Get exo gesture"));
+    commandPrint(F(" set_gesture_state     |  NAME:VALUE          | // Set exo gesture state"));
+    commandPrint(F(" get_gesture_state     |                      | // Get exo gesture state"));
+    commandPrint(F(" cycle_gesture         |                      | // Executes the next gesture in the library"));
+    commandPrint(F(" cycle_gesture_state   |                      | // Cycles the next gesture state"));
+    commandPrint(F(" calibrate_exo         |  VALUE:VALUE         | // start the calibration routine for the exo"));
+    commandPrint(F(" get_imu               |                      | // Returns list of accel & gyro values"));
     commandPrint(F(" =========================================================================================="));
   } else {
     debugPrint("Unknown command: " + token);

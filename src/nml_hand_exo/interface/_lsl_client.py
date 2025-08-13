@@ -6,25 +6,49 @@ from pylsl import StreamInlet, resolve_byprop
 
 # A generic LSL handler that subscribes to LSL streams and provides basic functionality
 class LSLClient:
-    def __init__(self, stream_type="EMG", maxlen=10000, auto_start=True, verbose=False):
-        print(f"[LSLClient] Looking for a stream of type '{stream_type}'...")
-        streams = resolve_byprop("type", stream_type, timeout=5)
-        if not streams:
-            raise RuntimeError(f"No LSL stream with type '{stream_type}' found.")
-
-        self.inlet = StreamInlet(streams[0])
-        self.info = self.inlet.info()
-        self.n_channels = self.info.channel_count()
-        self.sampling_rate = self.info.nominal_srate()
-        self.name = self.info.name()
-        self.type = self.info.type()
-        self.channel_labels, self.units = self._get_channel_metadata()
+    def __init__(self, stream_name=None, stream_type=None, maxlen=10000, auto_start=True, verbose=False):
+        if stream_name is None and stream_type is None:
+            raise ValueError("Either stream_name or stream_type must be provided.")
+        if stream_name is not None and stream_type is not None:
+            raise ValueError("Only one of stream_name or stream_type should be provided.")
         self.auto_start = auto_start
         self.verbose = verbose
+
+        streams = None
+        if stream_name:
+            print(f"[LSLClient] Looking for a stream with name '{stream_name}'...")
+            streams = resolve_byprop("name", stream_name, timeout=5)
+            if not streams:
+                raise RuntimeError(f"No LSL stream with name '{stream_name}' found.")
+
+        if stream_type:
+            print(f"[LSLClient] Looking for a stream of type '{stream_type}'...")
+            streams = resolve_byprop("type", stream_type, timeout=5)
+            if not streams:
+                raise RuntimeError(f"No LSL stream with type '{stream_type}' found.")
+
+        print("[LSLClient] Streams found:")
+        for s in streams:
+            print(f"  Stream name: {s.name()}, type: {s.type()}, id: {s.source_id()}")
+        try:
+            self.inlet = StreamInlet(streams[0])
+            self.info = self.inlet.info()
+            self.n_channels = self.info.channel_count()
+            self.sampling_rate = self.info.nominal_srate()
+            self.name = self.info.name()
+            self.type = self.info.type()
+            self.channel_labels, self.units = self._get_channel_metadata()
+        except Exception as e:
+            print(f"[LSLClient] Failed to create inlet or extract metadata: {e}")
+            raise
+
+        print(f"[LSLClient] Connected to stream: {self.name}")
+        print(f"  Channels: {self.n_channels}, Sample Rate: {self.sampling_rate} Hz")
 
         self.buffers = [deque(maxlen=maxlen) for _ in range(self.n_channels)]
         self.lock = threading.Lock()
         self.streaming = False
+        self.thread = None
         self.total_samples = 0
         self.reconnect_attempts = 0
 
@@ -65,14 +89,14 @@ class LSLClient:
 
     def start_streaming(self):
         self.streaming = True
-        self.thread = threading.Thread(target=self._pull_data_loop, daemon=True)
+        self.thread = threading.Thread(target=self._streaming_worker, daemon=True)
         self.thread.start()
 
     def stop_streaming(self):
         self.streaming = False
         self.thread.join()
 
-    def _pull_data_loop(self):
+    def _streaming_worker(self):
         while self.streaming:
             sample, timestamp = self.inlet.pull_sample(timeout=0.1)
             if sample:

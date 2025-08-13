@@ -43,6 +43,10 @@ public:
     /// @param pin Interrupt pin.
     void setCycleGestureButton(const int pin);
 
+    /// @brief Assign pin for pinch gesture cycling switch interrupt
+    /// @param pin Interrupt pin.
+    void setPinchCycleButton(int pin);
+
     /// @brief Assign a button pin to directly activate a named gesture.
     /// @param gesture Name of the gesture (must exist in gestureLibrary)
     /// @param pin Pin number for the button
@@ -55,6 +59,10 @@ public:
     /// @brief Update the button state and handle mode switching.
     /// @return button state
     bool checkCycleGestureButtonPressed();
+
+    /// @brief Check if pinch gesture state button was pressed.
+    /// @return button state
+    bool checkPinchCycleButtonPressed();
 
     /// @brief Cycle through the exo operating modes.
     void cycleGesture();
@@ -90,6 +98,9 @@ private:
     /// @brief Mode switch pin
     int gestureStateSwitchPin = -1;
 
+    /// @brief Pinch cycle pin
+    int pinchCycleButtonPin_ = -1;
+
     /// @brief Mode switch flag triggered by the mode switch interrupt callback
     static volatile bool gestureStateSwitchFlag;
 
@@ -97,10 +108,21 @@ private:
     bool lastGestureStateButtonState = false; // Last state of the mode switch button
 
     /// @brief Current state of the mode switch button
-    int gestureStateButtonState = HIGH;
+    bool gestureStateButtonState = HIGH;
+
+    /// @brief Last state of the pinch switch button
+    bool lastPinchCycleButtonState = HIGH;
+
+    /// @brief Current state of the pinch switch button
+    bool pinchCycleButtonState = HIGH;
 
     /// @brief Last debounce time for mode switch button
     unsigned long lastGestureStateDebounceTime = 0;
+
+    /// @brief Last debounce time for pinch switch button
+    unsigned long lastPinchCycleDebounceTime = 0;
+
+    uint8_t activePinchIdx_ = 0;              // 0=index, 1=middle, 2=ring
 
     // @brief Gesture cycle pin
     int cycleGesturePin = -1;

@@ -16,6 +16,8 @@ dependencies = [
     "PyQt5",
     "pyqtgraph",
     "pylsl",
+    "pandas",
+    "scipy"
 ]
 
 [project.urls]

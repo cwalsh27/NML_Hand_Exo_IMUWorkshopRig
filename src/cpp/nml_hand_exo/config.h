@@ -6,6 +6,56 @@
 #pragma once
 #include <Arduino.h>
 
+// ========= Board specific configuration ===================
+/// @brief Serial port for Dynamixel communication.
+/// @brief Pin assignment for the Dynamixel direction control pin.
+#if defined(ARDUINO_AVR_UNO) || defined(ARDUINO_AVR_MEGA2560) // When using DynamixelShield
+  //#include <SoftwareSerial.h>
+  //SoftwareSerial soft_serial(7, 8); // DYNAMIXELShield UART RX/TX
+  #define DEBUG_SERIAL Serial
+  #define DXL_SERIAL Serial1
+  #define COMMAND_SERIAL Serial2
+  //#define BLE_SERIAL soft_serial
+  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
+#elif defined(ARDUINO_SAM_DUE) // When using DynamixelShield
+  #define DXL_SERIAL   Serial
+  #define COMMAND_SERIAL Serial1
+  //#define DEBUG_SERIAL Serial1
+  //#define DEBUG_SERIAL SerialUSB
+  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
+#elif defined(ARDUINO_SAM_ZERO) // When using DynamixelShield
+  #define DEBUG_SERIAL Serial
+  #define DXL_SERIAL   Serial1
+  #define COMMAND_SERIAL Serial2
+  //#define DEBUG_SERIAL SerialUSB
+  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
+#elif defined(ARDUINO_OpenCM904) // When using official ROBOTIS board with DXL circuit.
+  #define DEBUG_SERIAL Serial
+  #define COMMAND_SERIAL Serial2
+  #define DXL_SERIAL   Serial3 //OpenCM9.04 EXP Board's DXL port Serial. (Serial1 for the DXL port on the OpenCM 9.04 board)
+  //#define DEBUG_SERIAL Serial
+  //const int DXL_DIR_PIN = 22; //OpenCM9.04 EXP Board's DIR PIN. (28 for the DXL port on the OpenCM 9.04 board)
+#elif defined(ARDUINO_OpenCR) // When using official ROBOTIS board with DXL circuit.
+  // For OpenCR, there is a DXL Power Enable pin, so you must initialize and control it.
+  // Reference link : https://github.com/ROBOTIS-GIT/OpenCR/blob/master/arduino/opencr_arduino/opencr/libraries/DynamixelSDK/src/dynamixel_sdk/port_handler_arduino.cpp#L78
+  #define DEBUG_SERIAL Serial
+  #define COMMAND_SERIAL Serial2
+  #define DXL_SERIAL   Serial3
+  //#define DEBUG_SERIAL Serial
+  //const int DXL_DIR_PIN = 84; // OpenCR Board's DIR PIN.
+#elif defined(ARDUINO_OpenRB)  // When using OpenRB-150
+  //OpenRB does not require the DIR control pin.
+  #define DEBUG_SERIAL Serial
+  #define DXL_SERIAL Serial1
+  #define COMMAND_SERIAL Serial2
+  //#define DEBUG_SERIAL Serial
+  //const int DXL_DIR_PIN = -1;
+#else // Other boards when using DynamixelShield
+  #define DEBUG_SERIAL Serial
+  #define DXL_SERIAL   Serial1
+  //#define DEBUG_SERIAL Serial
+  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
+#endif
 
 // ======================================= PIN CONFIGURATION =============================================
 // =======================================================================================================
@@ -27,7 +77,8 @@ constexpr int CYCLE_GESTURE_STATE_PIN = 5;
 //constexpr int DYNAMIXEL_RX_PIN = 13; // RX pin for Dynamixel communication
 
 /// @brief Pin definition for the status LED (built-in LED on most boards)
-constexpr int STATUS_LED_PIN = LED_BUILTIN;
+//constexpr int STATUS_LED_PIN = LED_BUILTIN;
+constexpr int STATUS_LED_PIN = 0;
 
 
 
@@ -35,13 +86,14 @@ constexpr int STATUS_LED_PIN = LED_BUILTIN;
 // =======================================================================================================
 
 /// @brief Command delimiter for parsing commands from the serial input.
-constexpr char* COMMAND_DELIMITER = ";";
+//constexpr char* COMMAND_DELIMITER = ";";
+constexpr const char* COMMAND_DELIMITER = ";";
 
 /// @brief Default exo mode on startup
-constexpr char* DEFAULT_EXO_MODE = "gesture_fixed"; // Available modes are "free", "gesture_fixed", and "gesture_continuous"
+constexpr const char* DEFAULT_EXO_MODE = "gesture_fixed"; // Available modes are "free", "gesture_fixed", and "gesture_continuous"
 
 /// @brief Verbose output toggle for debugging.
-constexpr bool DEFAULT_VERBOSE = false;
+constexpr bool DEFAULT_VERBOSE = true;
 
 // Define servo IDs
 constexpr uint8_t WRIST_ID  = 0;
@@ -55,33 +107,34 @@ constexpr uint8_t THUMB_ID  = 1; // 5
 constexpr uint8_t MOTOR_IDS[] = {  WRIST_ID, THUMB_ID, INDEX_ID, MIDDLE_ID, RING_ID, PINKY_ID};
 
 /// @brief Motor name Array (must match the order above)
-constexpr char* MOTOR_NAMES[] = {  "wrist", "thumb", "index", "middle", "ring", "pinky" };
+constexpr const char* MOTOR_NAMES[] = {  "wrist", "thumb", "index", "middle", "ring", "pinky" };
 
 /// @brief Assign the physical joint limits for each motor after assembly on exo (these are found experimentally)
 constexpr float jointLimits[6][2] = {
-  {189, 284}, //189, 284   // open -> close
-  {126, 147}, //126, 147
-  {242, 302}, //242, 302
-  {142, 195}, //142, 195
-  {158, 226}, //158, 226
-  {138, 214} //214, 138
+  {-189, 2840}, //189, 284   // open -> close
+  {-126, 1470}, //126, 147
+  {-242, 3020}, //242, 302
+  {-142, 1950}, //142, 195
+  {-158, 2260}, //158, 226
+  {-138, 2140} //214, 138
 };
 
-// Assign a home position using the absolute position for each motor (these are also found experimentally)
+// Assign a home position using the absolute position for each motor when the hand is fully open 
+// Note that these are found experimentally
 /// @brief Home states for each motor in degrees.
-constexpr float HOME_STATES[] = {  208.0,  147.0,  268.0,  167.0,  185.0,  183.0 };
+constexpr float HOME_STATES[] = {  208.5,  180.0,  240.5,  189.0,  154.5,  188.5 };
 
 /// @brief Default baud rate for the debug serial connection.
-constexpr long DEBUG_BAUD_RATE = 115200;
+constexpr long DEBUG_BAUD_RATE = 57600;
 
 /// @brief Default baud rates for BLE communication.
-constexpr long COMMAND_BAUD_RATE = 115200;
+constexpr long COMMAND_BAUD_RATE = 57600;
 
 /// @brief Default baud rate for Dynamixel communication.
-constexpr long DYNAMIXEL_BAUD_RATE = 115200;
+constexpr long DYNAMIXEL_BAUD_RATE = 57600;
 
 /// @brief Total number of gesture contained in the library
-constexpr int N_GESTURES = 3;
+constexpr int N_GESTURES = 7;
 
 /// @brief Maximum number of gesture buttons that can be configured
 constexpr int MAX_GESTURE_BUTTONS = 6; // Maximum number of gesture buttons that can be configured

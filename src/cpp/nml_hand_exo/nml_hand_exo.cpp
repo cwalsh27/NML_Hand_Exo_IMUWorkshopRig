@@ -11,57 +11,6 @@
 #include "nml_hand_exo.h"
 #include <Dynamixel2Arduino.h>
 
-// Please modify it to suit your hardware.
-
-/// @brief Serial port for Dynamixel communication.
-/// @brief Pin assignment for the Dynamixel direction control pin.
-#if defined(ARDUINO_AVR_UNO) || defined(ARDUINO_AVR_MEGA2560) // When using DynamixelShield
-  //#include <SoftwareSerial.h>
-  //SoftwareSerial soft_serial(7, 8); // DYNAMIXELShield UART RX/TX
-  #define DEBUG_SERIAL Serial
-  #define DXL_SERIAL Serial1
-  #define COMMAND_SERIAL Serial2
-  //#define BLE_SERIAL soft_serial
-  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
-#elif defined(ARDUINO_SAM_DUE) // When using DynamixelShield
-  #define DXL_SERIAL   Serial
-  #define COMMAND_SERIAL Serial1
-  //#define DEBUG_SERIAL Serial1
-  //#define DEBUG_SERIAL SerialUSB
-  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
-#elif defined(ARDUINO_SAM_ZERO) // When using DynamixelShield
-  #define DEBUG_SERIAL Serial
-  #define DXL_SERIAL   Serial1
-  #define COMMAND_SERIAL Serial2
-  //#define DEBUG_SERIAL SerialUSB
-  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
-#elif defined(ARDUINO_OpenCM904) // When using official ROBOTIS board with DXL circuit.
-  #define DEBUG_SERIAL Serial
-  #define COMMAND_SERIAL Serial2
-  #define DXL_SERIAL   Serial3 //OpenCM9.04 EXP Board's DXL port Serial. (Serial1 for the DXL port on the OpenCM 9.04 board)
-  //#define DEBUG_SERIAL Serial
-  //const int DXL_DIR_PIN = 22; //OpenCM9.04 EXP Board's DIR PIN. (28 for the DXL port on the OpenCM 9.04 board)
-#elif defined(ARDUINO_OpenCR) // When using official ROBOTIS board with DXL circuit.
-  // For OpenCR, there is a DXL Power Enable pin, so you must initialize and control it.
-  // Reference link : https://github.com/ROBOTIS-GIT/OpenCR/blob/master/arduino/opencr_arduino/opencr/libraries/DynamixelSDK/src/dynamixel_sdk/port_handler_arduino.cpp#L78
-  #define DEBUG_SERIAL Serial
-  #define COMMAND_SERIAL Serial2
-  #define DXL_SERIAL   Serial3
-  //#define DEBUG_SERIAL Serial
-  //const int DXL_DIR_PIN = 84; // OpenCR Board's DIR PIN.
-#elif defined(ARDUINO_OpenRB)  // When using OpenRB-150
-  //OpenRB does not require the DIR control pin.
-  #define DEBUG_SERIAL Serial
-  #define DXL_SERIAL Serial1
-  #define COMMAND_SERIAL Serial2
-  //#define DEBUG_SERIAL Serial
-  //const int DXL_DIR_PIN = -1;
-#else // Other boards when using DynamixelShield
-  #define DEBUG_SERIAL Serial
-  #define DXL_SERIAL   Serial1
-  //#define DEBUG_SERIAL Serial
-  //const int DXL_DIR_PIN = 2; // DYNAMIXEL Shield DIR PIN
-#endif
 
 /// @brief Verbose output toggle for debugging.
 bool VERBOSE = DEFAULT_VERBOSE; // default to true
@@ -117,6 +66,7 @@ NMLHandExo::NMLHandExo(const uint8_t* ids, uint8_t numMotors, const float jointL
   }
 
   bool flips[6] = {false, false, false, true, false, true};
+  //bool flips[6] = {false, false, false, true, false, true};
   memcpy(flipMotor_, flips, sizeof(flips));
 
 
@@ -171,19 +121,14 @@ int NMLHandExo::getIndexById(uint8_t id) {
   return -1;
 }
 int NMLHandExo::getMotorIDByName(const String& name) {
-  String n = name;
-  n.toUpperCase();
-  if (n == "WRIST") return 1;
-  if (n == "THUMB") return 2;
-  if (n == "INDEX") return 3;
-  if (n == "MIDDLE") return 4;
-  if (n == "RING") return 5;
-  if (n == "PINKY") return 6;
+  String target = name; target.toLowerCase();
+  for (int i = 0; i < numMotors_; ++i) {
+    if (motorNames_ && target.equalsIgnoreCase(String(motorNames_[i]))) {
+      return motorIds_[i];
+    }
+  }
   return -1;
 }
-//const char* getMotorName(int index) {
-//    return motorNames_[index];  // assuming motorNames_ is stored
-//}
 void NMLHandExo::setMotorNames(const char* const* names) {
   motorNames_ = names;
 }
@@ -197,7 +142,7 @@ String NMLHandExo::getMotorNameByID(uint8_t id) {
 }
 int NMLHandExo::angleToTicks(float angle_deg, int index) {
   // Map degrees to ticks: assume full range = 4096 ticks = 360 deg
-  float deg_per_tick = 300.0 / PULSE_RESOLUTION;
+  float deg_per_tick = 360.0 / PULSE_RESOLUTION;
   int ticks = static_cast<int>(angle_deg / deg_per_tick);
   return ticks;
 }
@@ -237,6 +182,7 @@ String NMLHandExo::getDeviceInfo() {
       uint8_t id = getMotorIDByIndex(i);
       String name = getMotorNameByID(id);
       float angle = getRelativeAngle(id);
+      float abs = getAbsoluteAngle(id);
       float minLimit = jointLimits_[i][0];
       float maxLimit = jointLimits_[i][1];
       float torque = getTorque(id);
@@ -244,7 +190,7 @@ String NMLHandExo::getDeviceInfo() {
 
       info += "Motor " + String(i) + ": {name: " + String(name) +
             ", id: " + String(id) +
-            ", angle: " + String(angle, 2) +
+            ", angle: " + String(angle, 2) + "(abs: " + String(abs) + ")"
             ", limits: [" + String(minLimit, 2) + ", " + String(maxLimit, 2) + "]" +
             ", torque: " + String(torque, 2) +
             ", enabled: " + (isEnabled ? "true" : "false") + "}\n";
@@ -252,11 +198,14 @@ String NMLHandExo::getDeviceInfo() {
     info += ";";
     return info;
 }
-
 int NMLHandExo::getMotorCount() {
   return numMotors_;
 }
-
+bool NMLHandExo::isMotorFlipped(uint8_t id) {
+  int index = getIndexById(id);
+  if (index == -1) return false;
+  return flipMotor_[index];
+}
 // ====================================================================================
 // ============================ Calibration commands ==================================
 // ====================================================================================
@@ -283,25 +232,25 @@ void NMLHandExo::updateCalibration() {
   if (!isCalibrating) return;
 
   unsigned long currentTime = millis();
-  float elapsedSec = (currentTime - calibrationStartTime) / 1000.0f;
+  unsigned long elapsedMs = (currentTime - calibrationStartTime);
 
   // Update joint limits
   for (uint8_t i = 0; i < numMotors_; ++i) {
-    float angle = getAbsoluteAngle(i);
+    uint8_t id = motorIds_[i];
+    float angle = getAbsoluteAngle(id);
     if (angle < jointLimits_[i][0]) jointLimits_[i][0] = angle;
     if (angle > jointLimits_[i][1]) jointLimits_[i][1] = angle;
   }
 
-  // Stop condition
-  if ((calibrationTimedMode && elapsedSec >= calibrationDuration*1000) || (!calibrationTimedMode && this->checkModeSwitchButtonPressed())) {
+  // Stop condition (timed or button)
+  if ((calibrationTimedMode && elapsedMs >= calibrationDuration) ||
+      (!calibrationTimedMode && this->checkModeSwitchButtonPressed())) {
     isCalibrating = false;
     DEBUG_SERIAL.println("[Gesture] Calibration complete.");
     for (uint8_t i = 0; i < this->getMotorCount(); ++i) {
       DEBUG_SERIAL.println("Motor " + String(i) + ": Min = " + String(jointLimits_[i][0]) +
                            ", Max = " + String(jointLimits_[i][1]));
     }
-
-    // TO-DO: Optionally store or update gesture thresholds here, possibly
   }
 }
 bool NMLHandExo::isExoCalibrating() {
@@ -322,7 +271,7 @@ void NMLHandExo::update() {
 
     // Check for button pushes
     if (checkModeSwitchButtonPressed()) {
-        debugPrint("Mode switch button pressed");
+        debugPrint(F("Mode switch button pressed"));
         String exo_mode = getExoOperatingMode();
         cycleExoOperatingMode();
         // if (exo_mode == "GESTURE_FIXED" || exo_mode == "GESTURE_CONTINUOUS") {
@@ -471,11 +420,13 @@ void NMLHandExo::setAbsoluteAngle(uint8_t id, float absoluteAngle) {
     debugPrint("Invalid motor ID: " + String(id));
     return;
   }
+  //   float clamped = constrain(absoluteAngle, jointLimits_[index][0], jointLimits_[index][1]);
+  //dxl_.setGoalPosition(id, clamped, UNIT_DEGREE);
   dxl_.setGoalPosition(id, absoluteAngle, UNIT_DEGREE);
   //char buffer[64];
   //snprintf(buffer, sizeof(buffer), "Setting motor %d to absolute angle %.2f", id, absoluteAngle);
   //debugPrint(buffer);
-  debugPrint("Setting motor " + String(id) + " to absolute angle " + String(absoluteAngle, 2));
+  debugPrint("[NMLHandExo] Setting motor " + String(id) + " to absolute angle " + String(absoluteAngle, 2));
 }
 float NMLHandExo::getZeroAngle(uint8_t id){
   int index = getIndexById(id);
@@ -519,18 +470,12 @@ void NMLHandExo::setAngleById(uint8_t id, float angle_deg) {
   // Set new goal tick position
   dxl_.setGoalPosition(id, abs_goal, UNIT_DEGREE);
   char buffer[64];
-  snprintf(buffer, sizeof(buffer), "Setting motor %d to angle %.2f deg", id, abs_goal);
+  snprintf(buffer, sizeof(buffer), "[NMLHandExo] Setting motor %d to abs angle %.2f deg", id, abs_goal);
   debugPrint(buffer);
 }
 void NMLHandExo::setAngleByAlias(const String& alias, float angleDeg) {
-  String name = alias;
-  name.toUpperCase();
-  if (name == "WRIST") setAngleById(1, angleDeg);
-  else if (name == "THUMB") setAngleById(2, angleDeg);
-  else if (name == "INDEX") setAngleById(3, angleDeg);
-  else if (name == "MIDDLE") setAngleById(4, angleDeg);
-  else if (name == "RING") setAngleById(5, angleDeg);
-  else if (name == "PINKY") setAngleById(6, angleDeg);
+  int id = getMotorIDByName(alias);
+  if (id != -1) setAngleById((uint8_t)id, angleDeg);
 }
 void NMLHandExo::setMotorLowerBound(uint8_t id, float lowerBound) {
   int index = getIndexById(id);
@@ -592,10 +537,6 @@ void NMLHandExo::setMotorLimits(uint8_t id, float lowerLimit, float upperLimit) 
   char buffer[64];
   snprintf(buffer, sizeof(buffer), "Set limits for motor %d: [%.2f, %.2f]", id, lowerLimit, upperLimit);
   debugPrint(buffer);
-
-  // Update the control table items for the motor
-  //dxl_.writeControlTableItem(UPPER_LIMIT, id, angleToTicks(upperLimit, index));
-  //dxl_.writeControlTableItem(LOWER_LIMIT, id, angleToTicks(lowerLimit, index));
 }
 
 
@@ -661,7 +602,6 @@ void NMLHandExo::setTorque(uint8_t id, float torque_Nm) {
   // Convert Nm to mA
   uint16_t current_mA = (uint16_t)(torque_Nm / XL330_TORQUE_CONSTANT);
   setCurrentLimit(id, current_mA);
-  //debugPrint("Torque limit for motor " + String(id) + " set to " + String(torque_Nm, 4) + " Nm (current limit: " + String(current_mA) + " mA)");
   char buffer[64];
   snprintf(buffer, sizeof(buffer), "Torque limit for motor %d: set to %.2f N·m", id, torque_Nm);
   debugPrint(buffer);

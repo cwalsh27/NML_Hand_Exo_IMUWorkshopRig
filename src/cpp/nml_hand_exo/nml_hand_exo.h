@@ -15,9 +15,8 @@ using namespace ControlTableItem;
 extern bool VERBOSE;
 
 /// @brief Bluetooth serial stream used for commands.
-extern Stream& COMMAND_SERIAL;
-
-extern Stream* debugStream;
+//extern Stream& COMMAND_SERIAL;
+//extern Stream* debugStream;
 
 /// @brief Debugging print helper function.
 /// @param msg The message to print.
@@ -128,6 +127,8 @@ class NMLHandExo {
     /// @brief Get the number of motors
     /// @return integer, number of motors.
     int getMotorCount();
+
+    bool isMotorFlipped(uint8_t id);
 
     // -----------------------------------------------------------
     // Calibration functions
@@ -360,7 +361,7 @@ class NMLHandExo {
     String getMotorMode();
 
     /// @brief Current software version.
-    static constexpr const char* VERSION = "0.2.11";
+    static constexpr const char* VERSION = "0.2.12";
 
   private:
     /// @brief Dynamixel2Arduino object for motor communication.

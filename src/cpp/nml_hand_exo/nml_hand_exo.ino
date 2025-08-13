@@ -32,8 +32,8 @@ SOFTWARE.
 Adafruit_ISM330DHCX ism330dhcx;
 
 // TO-DO: Move these to config.h or nml_hand_exo.h
-#define DEBUG_SERIAL Serial
-#define COMMAND_SERIAL Serial2
+//#define DEBUG_SERIAL Serial
+//#define COMMAND_SERIAL Serial2
 
 // Create the exo device with the motor parameters and id values
 NMLHandExo exo(MOTOR_IDS, N_MOTORS, jointLimits, HOME_STATES);
@@ -49,10 +49,10 @@ void setup() {
   DEBUG_SERIAL.begin(DEBUG_BAUD_RATE);    // Setting a default baud rate of 57600
   COMMAND_SERIAL.begin(COMMAND_BAUD_RATE);     // (Optional) Establish port with TX/RX pins for incomming serial data/commands
 
-  // Setup IMU
+  // // Setup IMU
   initializeIMU(ism330dhcx);
 
-  // Setup exo
+  // // Setup exo
   exo.initializeSerial(DYNAMIXEL_BAUD_RATE);
   exo.initializeMotors();       // Initialize motors and set them to "current position" mode
   // exo.resetAllZeros();       // (Optional) Defines the current position of the motors as the home position
@@ -67,7 +67,8 @@ void setup() {
   gc.setGestureStateSwitchButton(CYCLE_GESTURE_STATE_PIN);
   gc.setGestureButtonCallback("grasp", GESTURE_GRASP_BUTTON_PIN);
   gc.setGestureButtonCallback("keygrip", GESTURE_KEYGRIP_BUTTON_PIN);
-  gc.setGestureButtonCallback("pinch", GESTURE_PINCH_BUTTON_PIN);
+  //gc.setGestureButtonCallback("pinch", GESTURE_PINCH_BUTTON_PIN); // Old button
+  gc.setPinchCycleButton(GESTURE_PINCH_BUTTON_PIN);
 
   // Flash LEDs to let user know system ready to go
   flashPin(STATUS_LED_PIN, 100, 4);
@@ -75,7 +76,6 @@ void setup() {
 }
 
 void loop() {
-
   // Handle data from the debug connection
   if (DEBUG_SERIAL.available() > 0) {
     String input = DEBUG_SERIAL.readStringUntil('\n');

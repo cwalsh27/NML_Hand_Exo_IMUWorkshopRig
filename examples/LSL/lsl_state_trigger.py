@@ -1,4 +1,4 @@
-from nml_hand_exo.interface import FakeHandExo, SerialComm, LSLClient
+from nml_hand_exo.interface import HandExo, FakeHandExo, SerialComm, LSLClient
 from nml_hand_exo.control import StateTriggerRMS
 
 if __name__ == "__main__":
@@ -8,7 +8,8 @@ if __name__ == "__main__":
     baudrate = 115200
 
     comm = SerialComm(port=port, baudrate=baudrate)
-    exo = FakeHandExo(comm, verbose=True)
+    #exo = FakeHandExo(comm, verbose=True)
+    exo = HandExo(comm, verbose=True)
     exo.connect()
 
     # Create an LSL client to stream EMG data

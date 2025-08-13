@@ -1,6 +1,6 @@
 #include "gesture_library.h"
 #include "gesture_controller.h"
-
+#include "utils.h"
 
 GestureController::GestureController(NMLHandExo& exo)
   : exo_(exo),
@@ -19,6 +19,7 @@ GestureController::GestureController(NMLHandExo& exo)
 }
 
 void GestureController::executeGesture(const String& gesture, const String& state) {
+
   int gIdx = findGestureIndex(gesture);
   if (gIdx == -1) {
     debugPrint("[GestureController] Unknown gesture: " + gesture);
@@ -31,18 +32,60 @@ void GestureController::executeGesture(const String& gesture, const String& stat
     return;
   }
 
-  float* angles = gestureLibrary[gIdx].states[sIdx].jointAngles;
-  for (int i = 0; i < exo_.getMotorCount(); i++) {
-    uint8_t id = exo_.getMotorIDByIndex(i);  // ID from index
-    exo_.setAbsoluteAngle(id, angles[i]);
-    debugPrint("Setting motor " + String(id) + " to angle " + String(angles[i], 2) + " deg");
+  const GestureState& st = gestureLibrary[gIdx].states[sIdx];
+
+  // Build home baseline in *index order*
+  float home[N_MOTORS];
+  for (int i = 0; i < exo_.getMotorCount(); ++i) {
+    uint8_t id = exo_.getMotorIDByIndex(i);
+    home[i] = exo_.getZeroAngle(id);
   }
+
+  // Resolve this state into absolute angles
+  float absAngles[N_MOTORS];
+  resolveStateAngles(gestureLibrary[gIdx].states[sIdx], home, absAngles);
+
+  /// If this state's angles were defined RELATIVE to home,
+  // apply per-motor flip by mirroring around the home baseline.
+  if (st.isRelative) {
+    for (int i = 0; i < exo_.getMotorCount(); ++i) {
+      uint8_t id = exo_.getMotorIDByIndex(i);
+      if (exo_.isMotorFlipped(id)) {
+        absAngles[i] = 2.0f * home[i] - absAngles[i];
+      }
+    }
+  }
+
+  // Command absolute targets
+  for (int i = 0; i < exo_.getMotorCount(); ++i) {
+    uint8_t id = exo_.getMotorIDByIndex(i);
+    debugPrint("[GestureController] motor " + String(id) + " -> abs " + String(absAngles[i], 2));
+    exo_.setAbsoluteAngle(id, absAngles[i]);
+  }
+
+  // float* angles = gestureLibrary[gIdx].states[sIdx].jointAngles;
+  // const GestureState& st = gestureLibrary[gIdx].states[sIdx];
+  // for (int i = 0; i < exo_.getMotorCount(); i++) {
+  //   uint8_t id = exo_.getMotorIDByIndex(i);  // ID from index
+  //   float rel = angles[i];
+  //   float abs_preview = exo_.getZeroAngle(id) + rel;
+  //   char buffer[96];
+  //   snprintf(buffer, sizeof(buffer), "[GestureController] motor %d: %s %.2f deg (abs preview %.2f)",
+  //         i, st.isRelative ? "relative" : "absolute", rel, abs_preview);
+  //   debugPrint(buffer);
+
+  //   // If your gesture values are relative, send as relative for clearer logs:
+  //   if (st.isRelative) {
+  //     exo_.setRelativeAngle(id, rel);
+  //   } else {
+  //     exo_.setAbsoluteAngle(id, rel);
+  //   }
+  // }
 
   currentGesture_ = gesture;
   currentGestureState_ = state;
   debugPrint("[GestureController] Executed gesture: " + gesture + ", state: " + state);
 }
-
 void GestureController::executeCurrentGestureNewState(const String& state) {
   // Get the current gesture
   String gesture = getCurrentGesture();
@@ -64,7 +107,6 @@ void GestureController::executeCurrentGestureNewState(const String& state) {
   // Execute the gesture with the specified state
   executeGesture(gesture, state);
 }
-
 void GestureController::setCycleGestureButton(const int pin) {
   cycleGesturePin = pin;
   pinMode(pin, INPUT_PULLUP);
@@ -75,10 +117,29 @@ void GestureController::setCycleGestureButton(const int pin) {
   lastCycleGestureDebounceTime = 0;
   debugPrint("Gesture state switch button set on pin " + String(cycleGesturePin));
 }
+void GestureController::setGestureStateSwitchButton(const int pin) {
+  gestureStateSwitchPin = pin;
+  pinMode(pin, INPUT_PULLUP);
+  delay(100);  // Give pin state time to settle
 
+  lastGestureStateButtonState = HIGH;
+  gestureStateButtonState = HIGH;
+  lastGestureStateDebounceTime = 0;
+  debugPrint("Gesture state switch button set on pin " + String(gestureStateSwitchPin));
+}
+void GestureController::setPinchCycleButton(int pin) {
+  pinchCycleButtonPin_ = pin;
+  pinMode(pinchCycleButtonPin_, INPUT_PULLUP);
+  delay(100);
+
+  lastPinchCycleButtonState = HIGH;
+  pinchCycleButtonState = HIGH;
+  lastPinchCycleDebounceTime = 0;
+  debugPrint("[Pinch] Cycle button on pin " + String(pin));
+}
 void GestureController::setGestureButtonCallback(const String& gesture, const int pin) {
     if (gestureButtonCount_ >= MAX_GESTURE_BUTTONS) {
-        debugPrint("[GestureController] Maximum gesture buttons reached, cannot add more.");
+        debugPrint(F("[GestureController] Maximum gesture buttons reached, cannot add more."));
         return;
     }
 
@@ -101,18 +162,6 @@ void GestureController::setGestureButtonCallback(const String& gesture, const in
     pinMode(pin, INPUT_PULLUP);
     debugPrint("Gesture button for '" + gesture + "' set on pin " + String(pin));
 }
-
-void GestureController::setGestureStateSwitchButton(const int pin) {
-  gestureStateSwitchPin = pin;
-  pinMode(pin, INPUT_PULLUP);
-  delay(100);  // Give pin state time to settle
-
-  lastGestureStateButtonState = HIGH;
-  gestureStateButtonState = HIGH;
-  lastGestureStateDebounceTime = 0;
-  debugPrint("Gesture state switch button set on pin " + String(gestureStateSwitchPin));
-}
-
 bool GestureController::checkGestureStateButtonPressed() {
   if (gestureStateSwitchPin == -1) return false;
   int reading = digitalRead(gestureStateSwitchPin);
@@ -132,7 +181,6 @@ bool GestureController::checkGestureStateButtonPressed() {
   lastGestureStateButtonState = reading;
   return false;
 }
-
 bool GestureController::checkCycleGestureButtonPressed() {
     if (cycleGesturePin == -1) return false;
     int reading = digitalRead(cycleGesturePin);
@@ -152,19 +200,38 @@ bool GestureController::checkCycleGestureButtonPressed() {
     lastCycleGestureButtonState = reading;
     return false;
 }
+bool GestureController::checkPinchCycleButtonPressed() {
+  if (pinchCycleButtonPin_ == -1) return false;
+  int reading = digitalRead(pinchCycleButtonPin_);
+  if (reading != lastPinchCycleButtonState) {
+    lastPinchCycleDebounceTime = millis();
+  }
 
+  if ((millis() - lastPinchCycleDebounceTime) > BUTTON_DEBOUNCE_DURATION) {
+    // if the reading has stabilized and changed from the stable state
+    if (reading != pinchCycleButtonState) {
+      pinchCycleButtonState = reading;         // update the stable state
+      if (pinchCycleButtonState == LOW) {      // pressed on pull-up wiring
+        lastPinchCycleButtonState = reading;   // keep these in sync
+        return true;
+      }
+    }
+  }
+  lastPinchCycleButtonState = reading;
+  return false;
+}
 void GestureController::cycleGesture() {
     // Cycle through the gestures
     debugPrint("Current gesture: " + currentGesture_);
     int gIdx = findGestureIndex(currentGesture_);
     if (gIdx == -1) {
-        debugPrint("[GestureController] Error: current gesture not found.");
+        debugPrint(F("[GestureController] Error: current gesture not found."));
         return;
     }
     int newIdx = (gIdx + 1) % numGestures_;  // Cycle through gestures
     debugPrint("New gesture index: " + String(newIdx));
     if (newIdx == 0) {
-        debugPrint("[GestureController] Wrapped back to first gesture.");
+        debugPrint(F("[GestureController] Wrapped back to first gesture."));
     }
 
     currentGesture_ = gestureLibrary[newIdx].name;
@@ -177,20 +244,17 @@ void GestureController::cycleGesture() {
       debugPrint("[GestureController] Gesture " + currentGesture_ + " has no states.");
     }
 }
-
 String GestureController::getCurrentGesture() {
     return currentGesture_;
 }
-
 String GestureController::getCurrentGestureState() {
     return currentGestureState_;
 }
-
 void GestureController::cycleGestureState() {
     // Cycle through the states of the current gesture
     int gIdx = findGestureIndex(currentGesture_);
     if (gIdx == -1) {
-        debugPrint("[GestureController] Error: current gesture not found.");
+        debugPrint(F("[GestureController] Error: current gesture not found."));
         return;
     }    
     debugPrint("Gesture index: " + String(gIdx));
@@ -207,12 +271,12 @@ void GestureController::cycleGestureState() {
                " (index: " + String(nextStateIdx) + ")");
     executeGesture(currentGesture_, newState);
 }
-
 void GestureController::update() {
     // Check if the gesture state button was pressed
     if (checkCycleGestureButtonPressed()) {
-        debugPrint("[GestureController] cycle gesture button pressed");
+        debugPrint(F("[GestureController] cycle gesture button pressed"));
         String exo_mode = exo_.getExoOperatingMode();
+        flashPin(STATUS_LED_PIN, 100, 1);
         if (exo_mode == "GESTURE_FIXED" || exo_mode == "GESTURE_CONTINUOUS") {
             // toggle the gesture index, call executeGesture(...)
             cycleGesture();
@@ -221,13 +285,15 @@ void GestureController::update() {
 
     // Check if the gesture state button was pressed
     if (checkGestureStateButtonPressed()) {
-        debugPrint("[GestureController] gesture state button pressed");
+        debugPrint(F("[GestureController] gesture state button pressed"));
+        flashPin(STATUS_LED_PIN, 100, 1);
         String gesture = getCurrentGesture();
         if (exo_.getExoOperatingMode() == "GESTURE_FIXED" || exo_.getExoOperatingMode() == "GESTURE_CONTINUOUS") {
             // toggle the gesture state, call executeGesture(...)
             cycleGestureState();
         }
     }
+
 
     // === Check all gesture buttons ===
     for (int i = 0; i < gestureButtonCount_; ++i) {
@@ -238,10 +304,23 @@ void GestureController::update() {
         gb.lastDebounceTime = millis();
     }
 
+    // Check if the pinch gesture button was pressed
+    if (checkPinchCycleButtonPressed()) {
+        activePinchIdx_ = (activePinchIdx_ + 1) % 3;  // index->middle->ring->index
+        const char* names[3] = { "pinch_index", "pinch_middle", "pinch_ring" };
+        currentGesture_ = names[activePinchIdx_];
+        flashPin(STATUS_LED_PIN, 100, activePinchIdx_ + 1);
+        debugPrint("[GestureController] Gesture button pressed for: " + gb.gestureName + ", specific: " + currentGesture_);
+        // re-apply current state so posture updates immediately
+        executeGesture(currentGesture_, currentGestureState_);
+    }
+
+
     if ((millis() - gb.lastDebounceTime) > BUTTON_DEBOUNCE_DURATION) {
         if (reading != gb.buttonState) {
             gb.buttonState = reading;
             if (gb.buttonState == LOW) {
+                flashPin(STATUS_LED_PIN, 100, 1);
                 debugPrint("[GestureController] Gesture button pressed for: " + gb.gestureName);
 
                 int gIdx = findGestureIndex(gb.gestureName);
