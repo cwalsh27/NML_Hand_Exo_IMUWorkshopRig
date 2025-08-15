@@ -122,7 +122,7 @@ constexpr float jointLimits[6][2] = {
 // Assign a home position using the absolute position for each motor when the hand is fully open 
 // Note that these are found experimentally
 /// @brief Home states for each motor in degrees.
-constexpr float HOME_STATES[] = {  208.5,  180.0,  240.5,  189.0,  154.5,  188.5 };
+constexpr float HOME_STATES[] = {  208.5,  150.0,  247.5,  193.0,  159.5,  211.5 };
 
 /// @brief Default baud rate for the debug serial connection.
 constexpr long DEBUG_BAUD_RATE = 57600;
