@@ -398,7 +398,7 @@ class HandExo(object):
             None
 
         """
-        self.send_command(f"set_vel:{motor_id}:{velocity}")
+        self.send_command(f"set_goal_velocity:{motor_id}:{velocity}")
 
     def get_motor_acceleration(self, motor_id: (int or str) = 'all') -> float:
         """
