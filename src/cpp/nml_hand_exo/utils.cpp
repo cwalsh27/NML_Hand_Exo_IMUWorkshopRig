@@ -4,28 +4,45 @@
  *
  */
 #include "utils.h"
+#include "oled.h"
 #include <Arduino.h>
 #include "nml_hand_exo.h"
 #include "gesture_controller.h"
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
+#include <chrono>
+#include <thread>
+#include <stdlib.h>
+#include <math.h>
 
+// ========================= IMU robustness tunables =========================
+static constexpr uint32_t I2C_SPEED_HZ        = 100000;   // 100 kHz for noisy rigs
+static constexpr uint8_t  ZERO_TRIP_COUNT     = 8;        // consecutive zero-ish accel reads before recovery
+static constexpr uint32_t STALE_TIMEOUT_MS    = 1000;     // time without good read -> recover
+static constexpr float    ACC_NEAR_ZERO_EPS   = 1e-3f;    // near-zero threshold
+static constexpr bool     PRINT_RECOVERY_INFO = true;     // set false to silence recovery prints
+// ===========================================================================
 
 // IMU variables (print delay logic currently disabled)
-uint16_t BNO055_SAMPLERATE_DELAY_MS = 10; //how often to read data from the board
-uint16_t PRINT_DELAY_MS = 500; // how often to print the data
-uint16_t printCount = 0; //counter to avoid printing every 10MS sample
+uint16_t BNO055_SAMPLERATE_DELAY_MS = 10; // how often to read data from the board
+uint16_t PRINT_DELAY_MS = 500;           // how often to print the data
+uint16_t printCount = 0;                 // counter to avoid printing every 10MS sample
 
 sensors_event_t orientationData, linearAccelData;
 
+// Internal state for recovery logic
+static uint8_t  s_zeroCount = 0;
+static uint32_t s_lastGoodMs = 0;
 
+// Forward declarations (internal)
+static inline bool nearZero3(float x, float y, float z, float eps);
+static bool recoverIMU(Adafruit_BNO055& imu);
 
 void debugPrint(const String& msg) {
   // Prints out message to debug serial port if VERBOSE is set to true
   if (VERBOSE) {
     #if defined(DEBUG_SERIAL)
-      //DEBUG_SERIAL(msg);
       DEBUG_SERIAL.println(msg);
     #else
       Serial.println(msg);  // fallback
@@ -48,7 +65,7 @@ void commandPrint(const String& msg) {
     DEBUG_SERIAL.println(cmdMsg);
   #else
     Serial2.println(cmdMsg);  // fallback
-    Serial.println(cmdMsg);  // fallback
+    Serial.println(cmdMsg);   // fallback
   #endif
 }
 
@@ -61,82 +78,136 @@ void commandPrint(const String& msg) {
 //     debugPrint(F("ISM330DHCX Found!"));
 //     imu.configInt1(false, false, true); // accelerometer DRDY on INT1
 //     imu.configInt2(false, true, false); // gyro DRDY on INT2
-
 //   }
 // }
 
+// ------------------------- ROBUST BNO055 INIT -------------------------
 bool initializeIMU(Adafruit_BNO055& bno) {
+  // Safe I2C setup each time we init
+  Wire.begin();
+  Wire.setClock(I2C_SPEED_HZ);
+  delay(50);
+
   if (!bno.begin()) {
-    Serial.println("No BNO055 detected");
+    if (PRINT_RECOVERY_INFO) {
+      #if defined(DEBUG_SERIAL)
+        DEBUG_SERIAL.println(F("[IMU] No BNO055 detected on begin()"));
+      #else
+        Serial.println(F("[IMU] No BNO055 detected on begin()"));
+      #endif
+    }
     return false;
   }
-  delay(1000);
+
+  delay(50);
+  bno.setExtCrystalUse(true); // stable fusion
+  delay(20);
+
+  // Reset counters
+  s_zeroCount  = 0;
+  s_lastGoodMs = millis();
+
+  if (PRINT_RECOVERY_INFO) {
+    #if defined(DEBUG_SERIAL)
+      DEBUG_SERIAL.println(F("[IMU] Initialized OK"));
+    #else
+      Serial.println(F("[IMU] Initialized OK"));
+    #endif
+  }
   return true;
 }
 
-
-// void getIMUData(Adafruit_ISM330DHCX& imu) {
-//   sensors_event_t accel, gyro, temp;
-//   if (!imu.getEvent(&accel, &gyro, &temp)) {
-//     debugPrint("IMU read failed");
-//     return;
-//   }
-//   char buffer[128];
-//   snprintf(buffer, sizeof(buffer),
-//            "Temp:%.2f C; Accel: [%.2f, %.2f, %.2f] m/s^2; Gyro: [%.2f, %.2f, %.2f] rad/s;",
-//            temp.temperature,
-//            accel.acceleration.x, accel.acceleration.y, accel.acceleration.z,
-//            gyro.gyro.x, gyro.gyro.y, gyro.gyro.z);
-//   commandPrint(buffer);
-// }
-
-// void getIMUData(Adafruit_BNO055& imu) {
-//   sensors_event_t orientationData, accelData, magData, gyroData;
-
-//   imu.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
-//   imu.getEvent(&accelData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
-//   imu.getEvent(&magData, Adafruit_BNO055::VECTOR_MAGNETOMETER);
-//   imu.getEvent(&gyroData, Adafruit_BNO055::VECTOR_GYROSCOPE);
-
-//   int temperature = imu.getTemp();
-
-//     // Now use orientationData, accelData, etc., and temperature as needed
-
-//   char buffer[128];
-//   snprintf(buffer, sizeof(buffer),
-//          "Temp: %.2f C; Euler: [%.2f, %.2f, %.2f] deg; Accel: [%.2f, %.2f, %.2f] m/s^2;",
-//          (float)temperature,
-//          euler.x(), euler.y(), euler.z(),
-//          accel.x(), accel.y(), accel.z());
-
-//   commandPrint(buffer);
-// }
-
+// ------------------------- IMU UPDATE + AUTO-RECOVERY -------------------------
 void updateIMU(Adafruit_BNO055& bno) {
   unsigned long tStart = micros();
 
-  bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
-  bno.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
+  // Primary reads (kept for compatibility with your code)
+  bool okEuler  = bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+  bool okLinAcc = bno.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
 
-  
-  //while ((micros() - tStart) < (BNO055_SAMPLERATE_DELAY_MS * 1000)) {
-    // wait
-  //}
+  // For robustness detection: get raw accelerometer (includes gravity),
+  // so we don't mistake "stationary" (linear accel ~0) for sensor zeros.
+  imu::Vector<3> acc = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+  bool nonZeroAcc = !nearZero3(acc.x(), acc.y(), acc.z(), ACC_NEAR_ZERO_EPS);
+
+  const uint32_t now = millis();
+  bool ok = okEuler && okLinAcc && nonZeroAcc;
+
+  if (ok) {
+    s_zeroCount = 0;
+    s_lastGoodMs = now;
+  } else {
+    if (!nonZeroAcc) {
+      // true zero vector from the chip (or bus fault)
+      if (s_zeroCount < 255) s_zeroCount++;
+    }
+    bool stale = (now - s_lastGoodMs) > STALE_TIMEOUT_MS;
+    if (stale || s_zeroCount >= ZERO_TRIP_COUNT) {
+      s_zeroCount = 0;
+      if (PRINT_RECOVERY_INFO) {
+        #if defined(DEBUG_SERIAL)
+          DEBUG_SERIAL.println(F("[IMU] Detected zeros/stale → recovering…"));
+        #else
+          Serial.println(F("[IMU] Detected zeros/stale → recovering…"));
+        #endif
+      }
+      if (!recoverIMU(bno)) {
+        if (PRINT_RECOVERY_INFO) {
+          #if defined(DEBUG_SERIAL)
+            DEBUG_SERIAL.println(F("[IMU] Recovery FAILED"));
+          #else
+            Serial.println(F("[IMU] Recovery FAILED"));
+          #endif
+        }
+      } else {
+        // After recovery, do one fresh read into your globals
+        bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+        bno.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
+      }
+    }
+  }
+
+  // Preserve your original sample pacing (commented out in your code)
+  // while ((micros() - tStart) < (BNO055_SAMPLERATE_DELAY_MS * 1000)) {
+  //   // wait
+  // }
 }
 
-void getIMUData(Adafruit_BNO055& bno) {
+// ------------------------- IMU GETTERS (unchanged external API) -------------------------
+String getIMUData(Adafruit_BNO055& bno) {
   if (printCount * BNO055_SAMPLERATE_DELAY_MS >= PRINT_DELAY_MS) {
     printCount = 0;
   } else {
     printCount++;
   }
 
-  String imu_data = "Heading: " + String(orientationData.orientation.x) + ", Pitch: " + String(orientationData.orientation.y) + ", Roll: " + String(orientationData.orientation.z); 
+  String imu_data = "Heading: " + String(orientationData.orientation.x) +
+                    ", Pitch: "   + String(orientationData.orientation.y) +
+                    ", Roll: "    + String(orientationData.orientation.z); 
 
   commandPrint(imu_data);
+  return imu_data;
 }
 
+float getIMUYaw(Adafruit_BNO055& bno) {
+  if (printCount * BNO055_SAMPLERATE_DELAY_MS >= PRINT_DELAY_MS) {
+    printCount = 0;
+  } else {
+    printCount++;
+  }
 
+  unsigned long timestamp = millis();
+
+  updateIMU(bno);
+
+  String imu_heading_string = "Heading: " + String(orientationData.orientation.x) + "Timestamp: " + String(timestamp);
+  float imu_heading_val = orientationData.orientation.x;
+
+  commandPrint(String(imu_heading_string));
+  return imu_heading_val;
+}
+
+// ------------------------- MISC UTILS -------------------------
 void flashPin(int pin, int durationMs, int repetitions) {
   for (int i = 0; i < repetitions; ++i) {
     digitalWrite(pin, HIGH);
@@ -162,6 +233,7 @@ int getArgMotorID(NMLHandExo& exo, const String& line, const int index) {
   return exo.getMotorID(getArg(line, index));
 }
 
+// ------------------------- COMMAND PARSER -------------------------
 void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_BNO055& imu, String token) {
 
   token.trim();        // Remove any trailing white space
@@ -351,6 +423,43 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_BNO055& imu, 
     id = getArgMotorID(exo, token, 1);
     val = getArg(token, 2).toInt();
     if (id != -1) exo.setRelativeAngle(id, val);
+
+  } else if (cmd == "set_yaw_angle") {
+    id = getArgMotorID(exo, token, 1);
+    int target_yaw = getArg(token, 2).toInt();
+    char direction = getArg(token, 3)[0];
+    commandPrint("direction value" + String(direction));
+    float step_angle = 1.1;
+    float current_motor_angle = exo.getRelativeAngle(id);
+    int attempts = 0;
+    float newAngle;
+    float current_wrist_angle;
+    bool moving = true;
+    if(direction == 'f') {
+      newAngle = current_motor_angle - step_angle;
+    } else {
+      newAngle = current_motor_angle + step_angle;
+    }
+    while (moving) {
+      exo.setRelativeAngle(id, newAngle);
+      delay(10);
+      current_wrist_angle = getIMUYaw(imu);
+      double wrist_diff = abs(current_wrist_angle - target_yaw);
+      if ((wrist_diff <= 0.5) || (attempts > 150)) {  //
+        moving = false;
+      } else {
+        if(direction == 'f') { //(directionality is for left hand)
+          newAngle = newAngle - step_angle;
+          commandPrint("flexing");
+        } else {
+          newAngle = newAngle - step_angle;
+          commandPrint("extending");
+        }
+        attempts++;
+      }
+    }
+
+    delay(1000);
 
   } else if (cmd == "get_absolute_angle") {
     String arg = getArg(token, 1);  // local copy
@@ -621,11 +730,6 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_BNO055& imu, 
 
   } else if (cmd == "calibrate_exo") {
     debugPrint(F("Command not supported yet"));
-    //String mode = getArg(token, 1);
-    //bool timed = (mode == "timed");
-    //float duration = getArg(token, 2).toFloat();
-    //if (duration <=0 ) duration = 10;
-    //exo.beginCalibration(timed, duration);
 
   } else if (cmd == "version") {
     // Print the current version of the exo device
@@ -637,6 +741,19 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_BNO055& imu, 
 
   } else if (cmd == "get_imu") {
     getIMUData(imu);
+    getIMUYaw(imu);
+
+  } else if (token == "oled:on") {
+    oledSetEnabled(true);
+    if (oledEnabled()) commandPrint("OLED enabled.");
+    else               commandPrint("OLED init failed; disabled.");
+
+  } else if (token == "oled:off") {
+    oledSetEnabled(false);
+    commandPrint("OLED disabled.");
+
+  } else if (token == "oled:status") {
+    commandPrint(oledEnabled() ? "OLED ENABLED" : "OLED DISABLED");
   
   } else if (token == "help") {
     commandPrint(F(" ================================== List of commands ======================================"));
@@ -683,9 +800,51 @@ void parseMessage(NMLHandExo& exo, GestureController& gc, Adafruit_BNO055& imu, 
     commandPrint(F(" cycle_gesture_state   |                      | // Cycles the next gesture state"));
     commandPrint(F(" calibrate_exo         |  VALUE:VALUE         | // start the calibration routine for the exo"));
     commandPrint(F(" get_imu               |                      | // Returns list of accel & gyro values"));
+    commandPrint(F(" set_yaw_angle         |  ID/NAME:ANGLE       | // Set motor angle via IMU wrist angle"));
+    commandPrint(F(" oled                  |  VALUE               | // Turn OLED on/off, get status"));
     commandPrint(F(" =========================================================================================="));
   } else {
     debugPrint("Unknown command: " + token);
   }
 }
 
+// ========================= INTERNAL HELPERS =========================
+static inline bool nearZero3(float x, float y, float z, float eps) {
+  return (fabsf(x) < eps) && (fabsf(y) < eps) && (fabsf(z) < eps);
+}
+
+static bool recoverIMU(Adafruit_BNO055& imu) {
+  // Recycle I2C and re-begin
+  #if ARDUINO >= 10600
+    Wire.end();
+  #endif
+  delay(5);
+  Wire.begin();
+  Wire.setClock(I2C_SPEED_HZ);
+  delay(20);
+
+  bool ok = imu.begin();
+  delay(50);
+  if (ok) {
+    imu.setExtCrystalUse(true);
+    delay(20);
+    s_zeroCount  = 0;
+    s_lastGoodMs = millis();
+    if (PRINT_RECOVERY_INFO) {
+      #if defined(DEBUG_SERIAL)
+        DEBUG_SERIAL.println(F("[IMU] Recovered"));
+      #else
+        Serial.println(F("[IMU] Recovered"));
+      #endif
+    }
+  } else {
+    if (PRINT_RECOVERY_INFO) {
+      #if defined(DEBUG_SERIAL)
+        DEBUG_SERIAL.println(F("[IMU] Recovery failed (begin)"));
+      #else
+        Serial.println(F("[IMU] Recovery failed (begin)"));
+      #endif
+    }
+  }
+  return ok;
+}
